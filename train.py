@@ -19,15 +19,22 @@ from pathlib import Path
 import math
 
 DATATYPE = torch.float32
+BenchSpec = None
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class HDF5DataSet(Dataset):
-    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, target_type=torch.float64):
+    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, train_end_index = np.inf, target_type=None):
         self.open_file = h5py.File(file_path, 'r')
         self.file_path = file_path
         self.target_type = target_type
+        self.train_end_index = train_end_index
+        print(self.train_end_index)
 
         self.ipt_dataset, self.opt_dataset = self.get_datasets(group_name, ipt_dataset, opt_dataset)
+        if target_type is None:
+            self.target_dtype = torch.from_numpy(np.array([], dtype=self.opt_dataset.dtype)).dtype
+        else:
+            self.target_dtype = target_type
         assert(len(self.ipt_dataset) == len(self.opt_dataset))
         self.length = len(self.ipt_dataset)
 
@@ -35,13 +42,114 @@ class HDF5DataSet(Dataset):
         group = self.open_file[group_name]
         ipt_dataset = group[ipt_dataset]
         opt_dataset = group[opt_dataset]
-        return ipt_dataset[0], opt_dataset[0]
+        if(ipt_dataset.shape[0] == 1):
+            print(f"WARNING: Found left dimension of 1 in shape {ipt_dataset.shape},"
+                  f" assuming this is not necessary and removing it."
+                  f" Reshaping to {ipt_dataset.shape[1:]}"
+                  )
+            ipt_dataset = ipt_dataset[0]
+            opt_dataset = opt_dataset[0]
+
+        if self.train_end_index == np.inf:
+            self.train_end_index = ipt_dataset.shape[0]
+        ipt_dataset = ipt_dataset[:self.train_end_index]
+        opt_dataset = opt_dataset[:self.train_end_index]
+        return ipt_dataset, opt_dataset
 
     def __len__(self):
         return self.length
     
     def __getitem__(self, idx):
         return torch.tensor(self.ipt_dataset[idx]).to(self.target_type), torch.tensor(self.opt_dataset[idx]).to(self.target_type)
+
+class TmpCopyingHDF5DataSet(HDF5DataSet):
+    """Often it's faster to read from /tmp/ than from a network drive. This class copies the file to /tmp/ and uses that copy."""
+    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, train_end_index = np.inf, target_type=None):
+        self.tmp_file_path = f'/tmp/{os.path.basename(file_path)}'
+        self.copy_file(file_path, self.tmp_file_path)
+        super().__init__(self.tmp_file_path, group_name, ipt_dataset, opt_dataset, train_end_index, target_type)
+
+    def copy_file(self, src, dst):
+        import shutil
+        shutil.copyfile(src, dst)
+
+
+class MiniWeatherNeuralNetwork(nn.Module):
+    def __init__(self, network_params):
+        super(MiniWeatherNeuralNetwork, self).__init__()
+        conv1_kernel_size = network_params.get("conv1_kernel_size")
+        conv1_stride = network_params.get("conv1_stride")
+        activ_fn_name = network_params.get("activation_function")
+
+        if activ_fn_name == "relu":
+            self.activ_fn = nn.ReLU()
+        elif activ_fn_name == "leaky_relu":
+            self.activ_fn = nn.LeakyReLU()
+        elif activ_fn_name == "tanh":
+            self.activ_fn = nn.Tanh()
+
+
+        c1ks = conv1_kernel_size
+        c1s = conv1_stride
+        
+        pad_width, pad_height = (2, 2)
+        padding_conv2 = (conv1_kernel_size - 1) // 2
+        pad_width, pad_height = padding_conv2, padding_conv2
+        self.conv1 = nn.Conv2d(in_channels=4, out_channels=4, 
+                               kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
+                               padding=(pad_width, pad_height)
+                               )
+
+        self.register_buffer('min', torch.full((4,1), torch.inf))
+        self.register_buffer('max', torch.full((4,1), -torch.inf))
+
+
+    def calculate_padding(self, input_height, input_width, kernel_size, stride):
+        # Unpack kernel size and stride
+        kernel_height, kernel_width = kernel_size
+        stride_height, stride_width = stride
+        
+        # Calculate padding for height
+        padding_height = ((stride_height * (input_height - 1)) + kernel_height - input_height) / 2
+        
+        # Calculate padding for width
+        padding_width = ((stride_width * (input_width - 1)) + kernel_width - input_width) / 2
+        
+        return (int(padding_height), int(padding_width))
+
+    def forward(self, x):
+        x = (x - self.min) / (self.max - self.min)
+
+        x = self.conv1(x)
+        x = self.activ_fn(x)
+        x = x * (self.max - self.min) + self.min
+
+        return x
+
+    def calculate_and_save_normalization_parameters(self, train_dl):
+        for x, y in train_dl:
+            x = x.to(device)  # Assuming x is of shape [N, C, H, W]
+            y = y.to(device)
+            #transpose to [C, N, H, W]
+            x = x.transpose(0, 1)
+            # reshape to [ C, N*H*W]
+            x = x.reshape(x.shape[0], -1)
+            # Compute min and max across the flattened spatial dimensions
+            batch_min = x.min(dim=1, keepdim=True).values
+            batch_max = x.max(dim=1, keepdim=True).values
+            self.min = torch.min(self.min, batch_min)
+            self.max = torch.max(self.max, batch_max)
+        # Adjust the min and max shapes to [C, 1, 1] by adding an extra dimension
+        self.min = self.min.unsqueeze(0)
+        self.max = self.max.unsqueeze(0)
+        self.min = self.min.unsqueeze(-1)
+        self.max = self.max.unsqueeze(-1)
+        print("Min shape ", self.min.shape)
+        print("Max shape ", self.max.shape)
+        # print the number of non-zeros in max
+        print("Min is ", self.min)
+        print("Max is ", self.max)
+
 
 
 class ParticleFilterNeuralNetwork(nn.Module):
@@ -117,6 +225,30 @@ def MAPE(actual, forecast):
     mape = torch.mean(torch.abs((actual - forecast) / (actual + epsilon))) * 100
     return mape
 
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta_percent=1):
+        self.patience = patience
+        self.min_delta_percent = min_delta_percent / 100.0  # Convert percentage to decimal
+        self.counter = 0
+        self.best_loss = None  # Change from float('inf') to None
+
+    def early_stop(self, validation_loss):
+        if self.best_loss is None:  # Initial case where best_loss is not set
+            self.best_loss = validation_loss
+            return False
+
+        improvement = (self.best_loss - validation_loss) / self.best_loss
+        if improvement >= self.min_delta_percent:  # Check if improvement meets threshold
+            self.best_loss = validation_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
+
+
+
 def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
     size = len(dataloader.dataset)
     model = model.to(device)
@@ -141,7 +273,7 @@ def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
 
 def test_loop(dataloader, model, loss_fn):
     size = len(dataloader.dataset)
-    test_loss, correct = 0, 0
+    test_loss = 0
     
     with torch.no_grad():
         for X, y in dataloader:
@@ -149,20 +281,12 @@ def test_loop(dataloader, model, loss_fn):
 
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
-            # correct += (pred.argmax(1)==y).type(torch.double).sum().item()
     
-    test_loss /= size
-    correct /= size
-    # print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f}\n")
-    return test_loss*size
+    return test_loss / size
 
 def infer_loop(model, dataloader, trials, writer=None):
 
-    data_list = []
-    for batch in dataloader:
-        # Assuming batch[0] is the tensor of data; adjust if your dataloader structure is different
-        data_list.append(batch[0])
-    X = torch.cat(data_list, dim=0)
+    X = BenchSpec.get_infer_data_from_dl(dataloader)
     X = X.to(device)
 
     total_time = 0
@@ -211,7 +335,7 @@ def infer_loop(model, dataloader, trials, writer=None):
       writer.add_scalar('inference time', average_time*1000, 0)
     return average_time * 1000
 
-def train_test_infer_loop(nn_class, train_dl, test_dl, arch_params, hyper_params):
+def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_params, hyper_params):
     learning_rate = hyper_params.get("learning_rate")
     epochs = hyper_params.get("epochs")
     batch_size = hyper_params.get("batch_size")
@@ -227,20 +351,64 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, arch_params, hyper_params
     scheduler = DummyScheduler(optimizer)
     best_test_loss = np.inf
     model_epoch = 0
-    
+
     for t in range(model_epoch, epochs):
         epoch_start = time.time()
         train_loop(writer, train_dl, model, loss_fn, optimizer, scheduler, t+1)
-        epoch_time = time.time() - epoch_start
         test_loss = test_loop(test_dl, model, loss_fn)
         test_loss_mape = test_loop(test_dl, model, MAPE)
         infer_time = infer_loop(model, test_dl, 100, writer)
+        epoch_time = time.time() - epoch_start
+        print(f"Epoch {t+1}\n-------------------------------")
+        print(f"Test Error: \n Avg loss: {test_loss:>8f}, MAPE: {test_loss_mape:>8f}, Time: {epoch_time:>8f}\n")
+        if early_stopper.early_stop(test_loss):
+            print(f'Early stopping at epoch {t+1} after max patience reached.')
+            break
     return test_loss, infer_time
 
-def get_nn_class(name):
-    if name == 'particlefilter':
+class BenchmarkSpecifier:
+    def __init__(self, name):
+        self.name = name
+
+    def get_nn_class(self):
+        return None
+    def get_target_type(self):
+        return None
+
+    def get_name(self):
+        return self.name
+
+    def get_infer_data_from_dl(self, dataloader):
+        pass
+
+    @classmethod
+    def get_specifier(cls, name):
+        if name == 'particlefilter':
+            return ParticleFilterSpecifier()
+        elif name == 'miniweather':
+            return MiniWeatherSpecifier()
+
+class MiniWeatherSpecifier(BenchmarkSpecifier):
+    def __init__(self):
+        super().__init__('miniweather')
+    def get_nn_class(self):
+        return MiniWeatherNeuralNetwork
+    def get_target_type(self):
+        return None
+    def get_infer_data_from_dl(self, dataloader):
+        item = next(iter(dataloader))[0]
+        return item[0]
+
+class ParticleFilterSpecifier(BenchmarkSpecifier):
+    def __init__(self):
+        super().__init__('particlefilter')
+    def get_nn_class(self):
         return ParticleFilterNeuralNetwork
-    
+    def get_target_type(self):
+        return torch.float32
+    def get_infer_data_from_dl(self, dataloader):
+        item = next(iter(dataloader))[0]
+        return item
 
 @click.command()
 @click.option('--name', help='Name of the benchmark')
@@ -260,8 +428,19 @@ def main(name, config, architecture_config, output):
     arch_params = yaml.load(f, Loader=yaml.FullLoader)
     arch_params, hyper_params = arch_params['arch_parameters'], arch_params['hyper_parameters']
   
+  global DATATYPE
   # TODO: We need to get the region name and the input/output from the configuration file
-  ds = HDF5DataSet(file_path, region_name, 'input', 'output', target_type=DATATYPE)
+  if 'train_end_index' in data_args:
+    tei = data_args['train_end_index']
+  else:
+    tei = np.inf
+
+  global BenchSpec
+  BenchSpec = BenchmarkSpecifier.get_specifier(name)
+  target_type = BenchSpec.get_target_type()
+
+  ds = TmpCopyingHDF5DataSet(file_path, region_name, 'input', 'output', train_end_index= tei, target_type = target_type)
+  DATATYPE = ds.target_dtype
   validation_split = 0.2
   batch_size = hyper_params.get("batch_size")
   shuffle_dataset = True
@@ -279,11 +458,14 @@ def main(name, config, architecture_config, output):
   valid_sampler = SubsetRandomSampler(val_indices)
 
   train_dl = DataLoader(ds, batch_size=batch_size, sampler=train_sampler)
-  test_dl = DataLoader(ds, batch_size=batch_size, sampler=valid_sampler)
+  test_dl = DataLoader(ds, batch_size=1, sampler=valid_sampler)
 
-  nn = get_nn_class(name)
-  test_loss, runtime = train_test_infer_loop(nn, train_dl, test_dl, arch_params, hyper_params)
-  results = {"total_mse": test_loss, 'inference_time': runtime}
+
+  nn = BenchSpec.get_nn_class()
+  early_stop_parms = config['early_stop_args']
+  early_stopper = EarlyStopper(early_stop_parms['patience'], early_stop_parms['min_delta_percent'])
+  test_loss, runtime = train_test_infer_loop(nn, train_dl, test_dl, early_stopper, arch_params, hyper_params)
+  results = {"average_mse": test_loss, 'inference_time': runtime}
   print(results)
   with open(output, 'w') as f:
     yaml.dump(results, f)

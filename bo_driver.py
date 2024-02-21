@@ -70,7 +70,10 @@ class BOParameterWrapper:
 
 def get_params(config):
     parm_space = config['parameter_space']
-    constraints = config['parameter_constraints']
+    if 'constraints' in config:
+        constraints = config['parameter_constraints']
+    else:
+        constraints = []
     objectives = config['objectives']
     tracking_metric_names = config['tracking_metrics']
 
@@ -123,8 +126,8 @@ def evaluate_hyperparameters(eval_args):
     command(_out=sys.stdout, _err=sys.stderr)
     with open(output_config_tmp.name, 'r') as f:
         results = yaml.safe_load(f)
-    error, inference_time = results['total_mse'], results['inference_time']
-    return {"total_mse": (error, 0), 'inference_time': (inference_time, 0)}
+    error, inference_time = results['average_mse'], results['inference_time']
+    return {"average_mse": (error, 0), 'inference_time': (inference_time, 0)}
 
 def evaluate_architecture(eval_args):
     ax_client_hyperparams = eval_args.ax_client_hypers
@@ -137,11 +140,11 @@ def evaluate_architecture(eval_args):
         ) 
     best_parameters = ax_client_hyperparams.get_best_parameters()
     print(best_parameters)
-    error = best_parameters[1][0]['total_mse']
+    error = best_parameters[1][0]['average_mse']
     inference_time = best_parameters[1][0]['inference_time']
     best_hypers = best_parameters[0]
     print("best hypers:", best_hypers)
-    data = {"total_mse": (error, 0), 'inference_time': (inference_time, 0), 'learning_rate': (best_hypers['learning_rate'], 0),
+    data = {"average_mse": (error, 0), 'inference_time': (inference_time, 0), 'learning_rate': (best_hypers['learning_rate'], 0),
     'weight_decay': (best_hypers['weight_decay'], 0), 'epochs': (best_hypers['epochs'], 0), 'batch_size': (best_hypers['batch_size'], 0)}
     return data, eval_args.arch_parameters
 
