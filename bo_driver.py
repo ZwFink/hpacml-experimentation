@@ -44,7 +44,7 @@ class OutputManager:
     def get_datetime_prefix(cls):
         return datetime.now().strftime("%Y-%m-%d")
 
-    def save_ax_client(self, optimization_step, ax_client, name="ax_client"):
+    def save_optimization_state(self, optimization_step, ax_client, name="ax_client"):
         ax_client.save_to_json_file(f"{str(self.output_dir_path)}/{name}.json")
         dat = {'optimization_step': optimization_step}
         with open(f'{str(self.output_dir_path)}/{name}_optimization_step.json', 'w') as f:
@@ -153,7 +153,8 @@ def evaluate_architecture(eval_args):
 @click.option('--config', default='./config.yaml', help='Path to the config file', required=True)
 @click.option('--benchmark', help='Name of the benchmark', required=True)
 @click.option('--output_base', default='./', help='Path to the base output directory', required=False)
-def main(config, benchmark, output_base):
+@click.option('--restart', help='Restart the optimization from the data in this directory', required=False)
+def main(config, benchmark, output_base, restart):
   om = OutputManager(f'{output_base}/{OutputManager.get_datetime_prefix()}', benchmark)
   
   config_filename = config
@@ -174,11 +175,22 @@ def main(config, benchmark, output_base):
   
   ax_client_hyperparams = AxClient()
   ax_client_architecture = AxClient()
+
+  start_round = 0
   
-  exp_arch = ax_client_architecture.create_experiment(name="Architecture_search",
-  parameters=arch_search_params.parameter_space, objectives=arch_search_params.objectives,
-  tracking_metric_names = arch_search_params.tracking_metric_names,
-  parameter_constraints = arch_search_params.parameter_constraints)
+  if restart is None:
+    exp_arch = ax_client_architecture.create_experiment(name="Architecture_search",
+    parameters=arch_search_params.parameter_space, objectives=arch_search_params.objectives,
+    tracking_metric_names = arch_search_params.tracking_metric_names,
+    parameter_constraints = arch_search_params.parameter_constraints)
+  else:
+    restart_file = f'{restart}/ax_client.json'
+    step_file = f'{restart}/ax_client_optimization_step.json'
+    ax_client_architecture = AxClient.load_from_json_file(restart_file)
+    with open(step_file, 'r') as step_f:
+      step = json.load(step_f)
+      start_round = step['optimization_step']
+      print(f'Restarting from step {start_round}')
   
   output_columns = arch_search_params.get_parameter_names() 
   output_columns += hyper_search_params.get_parameter_names()
@@ -188,7 +200,7 @@ def main(config, benchmark, output_base):
   
   eval_args = EvalArgs(benchmark, config_global, config_filename, None, ax_client_hyperparams, None)
   
-  for i in range(TRIALS_ARCH):
+  for i in range(start_round, TRIALS_ARCH):
       parameters, trial_index = ax_client_architecture.get_next_trial()
       eval_args.arch_parameters = parameters
   
@@ -214,7 +226,7 @@ def main(config, benchmark, output_base):
       # print pareto optimal parameters 
       best_parameters = ax_client_architecture.get_pareto_optimal_parameters()
       print("pareto parameters:", best_parameters)
-      om.save_ax_client(i, ax_client_architecture)
+      om.save_optimization_state(i, ax_client_architecture)
       om.save_trial_results_df(output_df)
       om.save_pareto_parameters(json.dumps(best_parameters))
 

@@ -6,7 +6,7 @@ particlefilter:
       region_name: 'particlefilter'
       train_test_dataset: '/scratch/mzu/zanef2/particlefilter_128x128_6500.h5'
     early_stop_args:
-      patience: 5
+      patience: 10
       min_delta_percent: 1
   bayesian_opt_driver_args:
     architecture_config:
@@ -121,7 +121,7 @@ miniweather:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 20
+        value: 15
       - name: batch_size
         type: fixed
         value: 32
