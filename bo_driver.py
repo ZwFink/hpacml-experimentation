@@ -34,9 +34,12 @@ from ax.service.ax_client import AxClient, ObjectiveProperties
 TRIALS_ARCH=2
 TRIALS_HYPERPARMS=3
 class OutputManager:
-    def __init__(self, directory_prefix, benchmark_name):
+    def __init__(self, directory_prefix, benchmark_name, append_benchmark_name=True):
         self.benchmark_name = benchmark_name
-        self.output_dir_name = f'{directory_prefix}_{benchmark_name}'
+        if append_benchmark_name:
+            self.output_dir_name = f'{directory_prefix}_{benchmark_name}'
+        else:
+            self.output_dir_name = f'{directory_prefix}'
         self.output_dir_path = Path(self.output_dir_name)
         self.output_dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -55,7 +58,9 @@ class OutputManager:
             f.write(pareto_parameters)
 
     def save_trial_results_df(self, trial_results_df, name="trial_results"):
-        trial_results_df.to_csv(f"{str(self.output_dir_path)}/{name}.csv")
+        # print trail results index name
+        print(trial_results_df.index.name)
+        trial_results_df.to_csv(f"{str(self.output_dir_path)}/{name}.csv", index=True)
 
 
 @dataclass
@@ -153,9 +158,18 @@ def evaluate_architecture(eval_args):
 @click.option('--config', default='./config.yaml', help='Path to the config file', required=True)
 @click.option('--benchmark', help='Name of the benchmark', required=True)
 @click.option('--output_base', default='./', help='Path to the base output directory', required=False)
-@click.option('--restart', help='Restart the optimization from the data in this directory', required=False)
-def main(config, benchmark, output_base, restart):
-  om = OutputManager(f'{output_base}/{OutputManager.get_datetime_prefix()}', benchmark)
+@click.option('--restart', default=None, help='Restart the optimization from the data in this directory', required=False)
+@click.option('--output', default=None, help='Path to the output directory. Mutually exclusive with output_base.', required=False)
+def main(config, benchmark, output_base, restart, output):
+  # Give 'output' the highest precedence for creating the output directory
+  if output:
+    om = OutputManager(output, benchmark, append_benchmark_name=False)
+  # if we don't have output, but we do have restart, then choose to continue from the restart directory
+  elif restart:
+    om = OutputManager(restart, benchmark, append_benchmark_name=False)
+  # otherwise, create the output directory from the output_base
+  elif not output and not restart:
+    om = OutputManager(f'{output_base}/{OutputManager.get_datetime_prefix()}', benchmark)
   
   config_filename = config
   with open(config_filename, 'r') as file:
@@ -165,6 +179,11 @@ def main(config, benchmark, output_base, restart):
   
   arch_search_params = get_params(config['architecture_config'])
   hyper_search_params = get_params(config['hyperparameter_config'])
+
+  output_columns = ['trial']
+  output_columns += arch_search_params.get_parameter_names() 
+  output_columns += hyper_search_params.get_parameter_names()
+  output_columns += arch_search_params.tracking_metric_names
 
   global TRIALS_ARCH
   global TRIALS_HYPERPARMS
@@ -179,6 +198,8 @@ def main(config, benchmark, output_base, restart):
   start_round = 0
   
   if restart is None:
+    output_df = pd.DataFrame(columns=output_columns)
+    output_df.set_index('trial', inplace=True)
     exp_arch = ax_client_architecture.create_experiment(name="Architecture_search",
     parameters=arch_search_params.parameter_space, objectives=arch_search_params.objectives,
     tracking_metric_names = arch_search_params.tracking_metric_names,
@@ -187,16 +208,12 @@ def main(config, benchmark, output_base, restart):
     restart_file = f'{restart}/ax_client.json'
     step_file = f'{restart}/ax_client_optimization_step.json'
     ax_client_architecture = AxClient.load_from_json_file(restart_file)
+    output_df = pd.read_csv(f'{restart}/trial_results.csv', index_col='trial')
     with open(step_file, 'r') as step_f:
       step = json.load(step_f)
-      start_round = step['optimization_step']
+      start_round = step['optimization_step'] + 1
       print(f'Restarting from step {start_round}')
   
-  output_columns = arch_search_params.get_parameter_names() 
-  output_columns += hyper_search_params.get_parameter_names()
-  output_columns += arch_search_params.tracking_metric_names
-  
-  output_df = pd.DataFrame(columns=output_columns)
   
   eval_args = EvalArgs(benchmark, config_global, config_filename, None, ax_client_hyperparams, None)
   
@@ -216,10 +233,13 @@ def main(config, benchmark, output_base, restart):
       data_hyper.update(data_arch)
       print(data_hyper)
       output_data = get_trial_output_data(output_columns, data_hyper)
+      output_data['trial'] = i  # Ensure this matches how you're tracking trial indices
       print("output_df", output_df)
       print("output data", output_data)
-      new_row_df = pd.DataFrame([output_data])
-      output_df = pd.concat([output_df, new_row_df], ignore_index=True)
+      new_row_df = pd.DataFrame([output_data]).set_index('trial')
+      output_df = pd.concat([output_df, new_row_df], ignore_index=False)
+      # set the name of the index column to trial
+      output_df.index.name = 'trial'
   
       print(output_df)
   
