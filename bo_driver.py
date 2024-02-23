@@ -33,6 +33,10 @@ from ax.service.ax_client import AxClient, ObjectiveProperties
 
 TRIALS_ARCH=2
 TRIALS_HYPERPARMS=3
+
+class TrialFailureException(Exception):
+    pass
+
 class OutputManager:
     def __init__(self, directory_prefix, benchmark_name, append_benchmark_name=True):
         self.benchmark_name = benchmark_name
@@ -128,7 +132,12 @@ def evaluate_hyperparameters(eval_args):
     '--architecture_config', input_config_tmp.name, '--output', output_config_tmp.name
     )
     print(str(command))
-    command(_out=sys.stdout, _err=sys.stderr)
+    try:
+        command(_out=sys.stdout, _err=sys.stderr)
+    except sh.ErrorReturnCode as e:
+        print("Error running command")
+        print(e)
+        return {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}
     with open(output_config_tmp.name, 'r') as f:
         results = yaml.safe_load(f)
     error, inference_time = results['average_mse'], results['inference_time']
@@ -140,9 +149,14 @@ def evaluate_architecture(eval_args):
         parameters_hyperparams, trial_index_hyperparams = ax_client_hyperparams.get_next_trial()
         eval_args.hyper_parameters= parameters_hyperparams
         print(parameters_hyperparams)
-        ax_client_hyperparams.complete_trial(trial_index = trial_index_hyperparams, 
-        raw_data=evaluate_hyperparameters(eval_args)
-        ) 
+        results = evaluate_hyperparameters(eval_args)
+        if results['average_mse'][0] == 1e9:
+            ax_client_hyperparams.log_trial_failure(trial_index_hyperparams)
+            raise TrialFailureException()
+        else:
+            ax_client_hyperparams.complete_trial(trial_index = trial_index_hyperparams, 
+            raw_data=results
+            )
     best_parameters = ax_client_hyperparams.get_best_parameters()
     print(best_parameters)
     error = best_parameters[1][0]['average_mse']
@@ -228,8 +242,12 @@ def main(config, benchmark, output_base, restart, output):
           parameters=hyper_search_params.parameter_space, objectives=hyper_search_params.objectives,
           tracking_metric_names=hyper_search_params.tracking_metric_names,
           outcome_constraints=hyper_search_params.parameter_constraints)
-      data_hyper, data_arch = evaluate_architecture(eval_args)
-      ax_client_architecture.complete_trial(trial_index = trial_index, raw_data=data_hyper)
+      try:
+        data_hyper, data_arch = evaluate_architecture(eval_args)
+        ax_client_architecture.complete_trial(trial_index = trial_index, raw_data=data_hyper)
+      except TrialFailureException:
+        data_hyper, data_arch = {}, eval_args.arch_parameters
+        ax_client_architecture.log_trial_failure(trial_index)
       data_hyper.update(data_arch)
       print(data_hyper)
       output_data = get_trial_output_data(output_columns, data_hyper)
