@@ -159,8 +159,9 @@ class ParticleFilterNeuralNetwork(nn.Module):
         conv_stride = network_params.get("conv_stride")
         maxpool_kernel_size = network_params.get("maxpool_kernel_size")
         maxpool_stride = maxpool_kernel_size
+        fc2_size = network_params.get("fc2_size")
 
-        self.linear_relu_stack = nn.Sequential(
+        self.conv_stack = nn.Sequential(
             nn.Conv2d(1, 1, kernel_size=conv_kernel_size, stride=conv_stride, padding=1),
             nn.MaxPool2d(kernel_size=maxpool_kernel_size, stride=maxpool_stride, padding=0,dilation=1)
         ).to(device)
@@ -182,17 +183,26 @@ class ParticleFilterNeuralNetwork(nn.Module):
         output_size = maxpool_output[0] * maxpool_output[1]
 
         # Linear layers
-        self.fc1 = nn.Linear(output_size, 2)
+        if fc2_size == 0:
+            self.linear_relu_stack = nn.Sequential(
+                nn.Linear(output_size, 2)
+            )
+        else:
+            self.linear_relu_stack = nn.Sequential(
+                nn.Linear(output_size, fc2_size),
+                nn.ReLU(),
+                nn.Linear(fc2_size, 2)
+            )
 
     
     def forward(self, x):
         x = x.unsqueeze(1)
         x = x.squeeze(-1)
         x = x / 255
-        logits = self.linear_relu_stack(x)
+        logits = self.conv_stack(x)
         logits = logits.flatten(1)
         logits = F.relu(logits)
-        logits = self.fc1(logits)
+        logits = self.linear_relu_stack(logits)
         logits = logits * 128
         logits = torch.clamp(logits, min=0, max=128)
         return logits
@@ -406,10 +416,7 @@ class ParticleFilterSpecifier(BenchmarkSpecifier):
     def get_target_type(self):
         return torch.float32
     def get_infer_data_from_dl(self, dataloader):
-        data = []
-        for item in dataloader:
-            data.append(item[0])
-        item = torch.cat(data, dim=0)
+        item = next(iter(dataloader))[0]
         return item
 
 @click.command()
