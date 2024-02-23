@@ -4,7 +4,7 @@ particlefilter:
   train_args:
     data_args:
       region_name: 'particlefilter'
-      train_test_dataset: '/scratch/mzu/zanef2/particlefilter_128x128_6500.h5'
+      train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/particlefilter_128x128_13000.h5'
     early_stop_args:
       patience: 10
       min_delta_percent: 1
@@ -23,13 +23,13 @@ particlefilter:
       - name: conv_kernel_size
         type: range
         bounds:
-        - 3
-        - 10
+        - 2
+        - 14
       - name: conv_stride
         type: range
         bounds:
-        - 3
-        - 10
+        - 2
+        - 14
       - name: maxpool_kernel_size
         type: range
         bounds:
