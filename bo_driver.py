@@ -237,6 +237,7 @@ def main(config, benchmark, output_base, restart, output):
   
       ax_client_hyperparams = AxClient()
       eval_args.ax_client_hypers = ax_client_hyperparams
+      n_success = 0
   
       hyper_arch = ax_client_hyperparams.create_experiment(name="PF_hyperparameters",
           parameters=hyper_search_params.parameter_space, objectives=hyper_search_params.objectives,
@@ -245,6 +246,7 @@ def main(config, benchmark, output_base, restart, output):
       try:
         data_hyper, data_arch = evaluate_architecture(eval_args)
         ax_client_architecture.complete_trial(trial_index = trial_index, raw_data=data_hyper)
+        n_success += 1
       except TrialFailureException:
         data_hyper, data_arch = {}, eval_args.arch_parameters
         ax_client_architecture.log_trial_failure(trial_index)
@@ -262,7 +264,10 @@ def main(config, benchmark, output_base, restart, output):
       print(output_df)
   
       # print pareto optimal parameters 
-      best_parameters = ax_client_architecture.get_pareto_optimal_parameters()
+      if n_success > 0:
+        best_parameters = ax_client_architecture.get_pareto_optimal_parameters()
+      else:
+        best_parameters = {}
       print("pareto parameters:", best_parameters)
       om.save_optimization_state(i, ax_client_architecture)
       om.save_trial_results_df(output_df)
