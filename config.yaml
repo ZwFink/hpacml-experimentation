@@ -7,7 +7,7 @@ particlefilter:
       train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/particlefilter_128x128_13000.h5'
     early_stop_args:
       patience: 10
-      min_delta_percent: 1
+      min_delta_percent: 3
   bayesian_opt_driver_args:
     architecture_config:
       trials: 100
@@ -35,6 +35,17 @@ particlefilter:
         bounds:
         - 1
         - 10
+      - name: fc2_size
+        type: choice
+        values:
+        - 0
+        - 2
+        - 4
+        - 8
+        - 16
+        - 32
+        - 64
+        - 128
       tracking_metrics:
       - average_mse
       - inference_time
