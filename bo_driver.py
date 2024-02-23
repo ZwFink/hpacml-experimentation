@@ -164,7 +164,8 @@ def evaluate_architecture(eval_args):
     best_hypers = best_parameters[0]
     print("best hypers:", best_hypers)
     data = {"average_mse": (error, 0), 'inference_time': (inference_time, 0), 'learning_rate': (best_hypers['learning_rate'], 0),
-    'weight_decay': (best_hypers['weight_decay'], 0), 'epochs': (best_hypers['epochs'], 0), 'batch_size': (best_hypers['batch_size'], 0)}
+    'weight_decay': (best_hypers['weight_decay'], 0), 'epochs': (best_hypers['epochs'], 0), 'batch_size': (best_hypers['batch_size'], 0),
+    'dropout': (best_hypers['dropout'], 0)}
     return data, eval_args.arch_parameters
 
 
