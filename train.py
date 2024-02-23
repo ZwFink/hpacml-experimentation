@@ -28,7 +28,6 @@ class HDF5DataSet(Dataset):
         self.file_path = file_path
         self.target_type = target_type
         self.train_end_index = train_end_index
-        print(self.train_end_index)
 
         self.ipt_dataset, self.opt_dataset = self.get_datasets(group_name, ipt_dataset, opt_dataset)
         if target_type is None:
@@ -407,7 +406,10 @@ class ParticleFilterSpecifier(BenchmarkSpecifier):
     def get_target_type(self):
         return torch.float32
     def get_infer_data_from_dl(self, dataloader):
-        item = next(iter(dataloader))[0]
+        data = []
+        for item in dataloader:
+            data.append(item[0])
+        item = torch.cat(data, dim=0)
         return item
 
 @click.command()
