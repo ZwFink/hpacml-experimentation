@@ -28,7 +28,6 @@ class HDF5DataSet(Dataset):
         self.file_path = file_path
         self.target_type = target_type
         self.train_end_index = train_end_index
-        print(self.train_end_index)
 
         self.ipt_dataset, self.opt_dataset = self.get_datasets(group_name, ipt_dataset, opt_dataset)
         if target_type is None:
@@ -84,13 +83,15 @@ class TmpCopyingHDF5DataSet(HDF5DataSet):
         import shutil
         shutil.copyfile(src, dst)
 
-
 class MiniWeatherNeuralNetwork(nn.Module):
     def __init__(self, network_params):
         super(MiniWeatherNeuralNetwork, self).__init__()
         conv1_kernel_size = network_params.get("conv1_kernel_size")
         conv1_stride = network_params.get("conv1_stride")
+        conv1_out_channels = network_params.get("conv1_out_channels")
+        dropout = network_params.get("dropout")
         activ_fn_name = network_params.get("activation_function")
+        conv2_kernel_size = network_params.get("conv2_kernel_size")
 
         if activ_fn_name == "relu":
             self.activ_fn = nn.ReLU()
@@ -103,13 +104,30 @@ class MiniWeatherNeuralNetwork(nn.Module):
         c1ks = conv1_kernel_size
         c1s = conv1_stride
         
+        self.dropout = nn.Dropout(dropout)
         pad_width, pad_height = (2, 2)
         padding_conv2 = (conv1_kernel_size - 1) // 2
         pad_width, pad_height = padding_conv2, padding_conv2
-        self.conv1 = nn.Conv2d(in_channels=4, out_channels=4, 
-                               kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
-                               padding=(pad_width, pad_height)
-                               )
+        if conv2_kernel_size != 0:
+          self.conv1 = nn.Conv2d(in_channels=4, out_channels=conv1_out_channels, 
+                                 kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
+                                 padding=(pad_width, pad_height)
+                                 )
+
+          padding_conv2 = (conv2_kernel_size - 1) // 2
+          self.conv2 = nn.Conv2d(in_channels=conv1_out_channels, out_channels=4, 
+                                 kernel_size=(conv2_kernel_size, conv2_kernel_size), 
+                                 stride=(1, 1), padding=(padding_conv2, padding_conv2)
+                                 )
+          self.fp = nn.Sequential(self.conv1, self.activ_fn, self.conv2, self.activ_fn, self.dropout)
+        else:
+            # Here, we ignore Conv1 out channels
+            self.conv1 = nn.Conv2d(in_channels=4, out_channels=4, 
+                                     kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
+                                     padding=(pad_width, pad_height)
+                                     )
+            self.fp = nn.Sequential(self.conv1, self.activ_fn, self.dropout)
+            
 
         self.register_buffer('min', torch.full((4,1), torch.inf))
         self.register_buffer('max', torch.full((4,1), -torch.inf))
@@ -131,8 +149,8 @@ class MiniWeatherNeuralNetwork(nn.Module):
     def forward(self, x):
         x = (x - self.min) / (self.max - self.min)
 
-        x = self.conv1(x)
-        x = self.activ_fn(x)
+        x = self.fp(x)
+
         x = x * (self.max - self.min) + self.min
 
         return x
@@ -171,8 +189,9 @@ class ParticleFilterNeuralNetwork(nn.Module):
         conv_stride = network_params.get("conv_stride")
         maxpool_kernel_size = network_params.get("maxpool_kernel_size")
         maxpool_stride = maxpool_kernel_size
+        fc2_size = network_params.get("fc2_size")
 
-        self.linear_relu_stack = nn.Sequential(
+        self.conv_stack = nn.Sequential(
             nn.Conv2d(1, 1, kernel_size=conv_kernel_size, stride=conv_stride, padding=1),
             nn.MaxPool2d(kernel_size=maxpool_kernel_size, stride=maxpool_stride, padding=0,dilation=1)
         ).to(device)
@@ -196,17 +215,26 @@ class ParticleFilterNeuralNetwork(nn.Module):
         print("FC1 size is ", output_size)
 
         # Linear layers
-        self.fc1 = nn.Linear(output_size, 2)
+        if fc2_size == 0:
+            self.linear_relu_stack = nn.Sequential(
+                nn.Linear(output_size, 2)
+            )
+        else:
+            self.linear_relu_stack = nn.Sequential(
+                nn.Linear(output_size, fc2_size),
+                nn.ReLU(),
+                nn.Linear(fc2_size, 2)
+            )
 
     
     def forward(self, x):
         x = x.unsqueeze(1)
         x = x.squeeze(-1)
         x = x / 255
-        logits = self.linear_relu_stack(x)
+        logits = self.conv_stack(x)
         logits = logits.flatten(1)
         logits = F.relu(logits)
-        logits = self.fc1(logits)
+        logits = self.linear_relu_stack(logits)
         logits = logits * 128
         logits = torch.clamp(logits, min=0, max=128)
         return logits
@@ -398,6 +426,9 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
     epochs = hyper_params.get("epochs")
     batch_size = hyper_params.get("batch_size")
     weight_decay = hyper_params.get("weight_decay")
+
+    if 'dropout' in hyper_params:
+        arch_params['dropout'] = hyper_params['dropout']
 
     model = nn_class(arch_params).to(DATATYPE).to(device)
     model.calculate_and_save_normalization_parameters(train_dl)
