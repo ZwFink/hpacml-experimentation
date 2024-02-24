@@ -23,7 +23,7 @@ BenchSpec = None
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class HDF5DataSet(Dataset):
-    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, train_end_index = np.inf, target_type=None):
+    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, train_end_index = np.inf, target_type=None, load_entire = False):
         self.open_file = h5py.File(file_path, 'r')
         self.file_path = file_path
         self.target_type = target_type
@@ -35,8 +35,11 @@ class HDF5DataSet(Dataset):
             self.target_dtype = torch.from_numpy(np.array([], dtype=self.opt_dataset.dtype)).dtype
         else:
             self.target_dtype = target_type
-        assert(len(self.ipt_dataset) == len(self.opt_dataset))
+        asert(len(self.ipt_dataset) == len(self.opt_dataset))
         self.length = len(self.ipt_dataset)
+        if load_entire:
+            self.ipt_dataset = torch.tensor(self.ipt_dataset).to(self.target_type)
+            self.opt_dataset = torch.tensor(self.opt_dataset).to(self.target_type)
 
     def get_datasets(self, group_name, ipt_dataset, opt_dataset):
         group = self.open_file[group_name]
@@ -56,6 +59,14 @@ class HDF5DataSet(Dataset):
         opt_dataset = opt_dataset[:self.train_end_index]
         return ipt_dataset, opt_dataset
 
+    def set_for_predicting_multiple_instances(self, n_instances):
+        ipt_shape = self.ipt_dataset.shape
+        opt_shape = self.opt_dataset.shape
+        assert(len(ipt_shape) == 2, "Input dataset must have 2 dimensions for compatiblity with multiple instances")
+        self.ipt_dataset = self.ipt_dataset.reshape((ipt_shape[0] // n_instances, ipt_shape[1] * n_instances))
+        self.opt_dataset = self.opt_dataset.reshape((opt_shape[0] // n_instances, opt_shape[1] * n_instances))
+        self.length = self.ipt_dataset.shape[0]
+
     def __len__(self):
         return self.length
     
@@ -64,10 +75,10 @@ class HDF5DataSet(Dataset):
 
 class TmpCopyingHDF5DataSet(HDF5DataSet):
     """Often it's faster to read from /tmp/ than from a network drive. This class copies the file to /tmp/ and uses that copy."""
-    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, train_end_index = np.inf, target_type=None):
+    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, train_end_index = np.inf, target_type=None, load_entire = False):
         self.tmp_file_path = f'/tmp/{os.path.basename(file_path)}'
         self.copy_file(file_path, self.tmp_file_path)
-        super().__init__(self.tmp_file_path, group_name, ipt_dataset, opt_dataset, train_end_index, target_type)
+        super().__init__(self.tmp_file_path, group_name, ipt_dataset, opt_dataset, train_end_index, target_type, load_entire)
 
     def copy_file(self, src, dst):
         import shutil
@@ -182,6 +193,8 @@ class ParticleFilterNeuralNetwork(nn.Module):
         # Overall output size for the linear layer
         output_size = maxpool_output[0] * maxpool_output[1]
 
+        print("FC1 size is ", output_size)
+
         # Linear layers
         self.fc1 = nn.Linear(output_size, 2)
 
@@ -200,6 +213,51 @@ class ParticleFilterNeuralNetwork(nn.Module):
 
     def calculate_and_save_normalization_parameters(self, train_dl):
         return None
+
+class BinomialOptionsNeuralNetwork(nn.Module):
+    def __init__(self, network_params):
+        super(BinomialOptionsNeuralNetwork, self).__init__()
+        multiplier = network_params.get("multiplier")
+        n_hidden_features = network_params.get("hidden_features")
+
+        n_ipt_features = 5 * multiplier
+        n_hidden_features = n_hidden_features * multiplier
+        n_opt_features = 1 * multiplier
+
+        print(f"n_ipt_features: {n_ipt_features}, n_hidden_features: {n_hidden_features}, n_opt_features: {n_opt_features}")
+
+        self.fc1 = nn.Linear(n_ipt_features, n_hidden_features)
+        self.fc2 = nn.Linear(n_hidden_features, n_opt_features)
+        self.activ_fn = nn.LeakyReLU()
+        self.register_buffer('ipt_min', torch.full((1,5), torch.inf))
+        self.register_buffer('ipt_max', torch.full((1,5), -torch.inf))
+
+        self.register_buffer('opt_min', torch.full((1,1), torch.inf))
+        self.register_buffer('opt_max', torch.full((1,1), -torch.inf))
+
+    def forward(self, x):
+        x = (x - self.ipt_min) / (self.ipt_max - self.ipt_min)
+        x = self.fc1(x)
+        x = self.activ_fn(x)
+        x = self.fc2(x)
+        x = torch.clamp(x, min=0)
+        x = x * (self.opt_max - self.opt_min) + self.opt_min
+        return x
+
+    def calculate_and_save_normalization_parameters(self, train_dl):
+        for x, y in train_dl:
+            x = x.to(device)  
+            y = y.to(device)
+            batch_min = x.min(dim=0, keepdim=True).values
+            batch_max = x.max(dim=0, keepdim=True).values
+            self.ipt_min = torch.min(self.ipt_min, batch_min)
+            self.ipt_max = torch.max(self.ipt_max, batch_max)
+
+            batch_min = y.min(dim=0, keepdim=True).values
+            batch_max = y.max(dim=0, keepdim=True).values
+            self.opt_min = torch.min(self.opt_min, batch_min)
+            self.opt_max = torch.max(self.opt_max, batch_max)
+
 
 class DummyScheduler:
     def __init__(self, optimizer):
@@ -387,6 +445,8 @@ class BenchmarkSpecifier:
             return ParticleFilterSpecifier()
         elif name == 'miniweather':
             return MiniWeatherSpecifier()
+        elif name == 'binomial_options':
+            return BinomialOptionsSpecifier()
 
 class MiniWeatherSpecifier(BenchmarkSpecifier):
     def __init__(self):
@@ -407,6 +467,18 @@ class ParticleFilterSpecifier(BenchmarkSpecifier):
     def get_target_type(self):
         return torch.float32
     def get_infer_data_from_dl(self, dataloader):
+        item = next(iter(dataloader))[0]
+        return item
+
+class BinomialOptionsSpecifier(BenchmarkSpecifier):
+    def __init__(self):
+        super().__init__('binomialoptions')
+    def get_nn_class(self):
+        return BinomialOptionsNeuralNetwork
+    def get_target_type(self):
+        return None
+    def get_infer_data_from_dl(self, dataloader):
+        # TOOD: This should be changed to get all items from the dataloader
         item = next(iter(dataloader))[0]
         return item
 
@@ -439,7 +511,8 @@ def main(name, config, architecture_config, output):
   BenchSpec = BenchmarkSpecifier.get_specifier(name)
   target_type = BenchSpec.get_target_type()
 
-  ds = TmpCopyingHDF5DataSet(file_path, region_name, 'input', 'output', train_end_index= tei, target_type = target_type)
+  ds = TmpCopyingHDF5DataSet(file_path, region_name, 'input', 'output', 
+  train_end_index= tei, target_type = target_type, load_entire=data_args['load_entire'])
   DATATYPE = ds.target_dtype
   validation_split = 0.2
   batch_size = hyper_params.get("batch_size")
