@@ -236,7 +236,6 @@ class ParticleFilterNeuralNetwork(nn.Module):
                 nn.Linear(fc2_size, 2)
             )
 
-    
     def forward(self, x):
         x = x.unsqueeze(1)
         x = x.squeeze(-1)
@@ -251,6 +250,7 @@ class ParticleFilterNeuralNetwork(nn.Module):
 
     def calculate_and_save_normalization_parameters(self, train_dl):
         return None
+
 
 class BinomialOptionsNeuralNetwork(nn.Module):
     def __init__(self, network_params):
@@ -293,6 +293,66 @@ class BinomialOptionsNeuralNetwork(nn.Module):
 
     def forward(self, x):
         x = (x - self.ipt_min) / (self.ipt_max - self.ipt_min)
+        x = self.layers(x)
+        x = torch.clamp(x, min=0)
+        x = x * (self.opt_max - self.opt_min) + self.opt_min
+        return x
+
+    def calculate_and_save_normalization_parameters(self, train_dl):
+        for x, y in train_dl:
+            x = x.to(device)
+            y = y.to(device)
+            batch_min = x.min(dim=0, keepdim=True).values
+            batch_max = x.max(dim=0, keepdim=True).values
+            self.ipt_min = torch.min(self.ipt_min, batch_min)
+            self.ipt_max = torch.max(self.ipt_max, batch_max)
+
+            batch_min = y.min(dim=0, keepdim=True).values
+            batch_max = y.max(dim=0, keepdim=True).values
+            self.opt_min = torch.min(self.opt_min, batch_min)
+            self.opt_max = torch.max(self.opt_max, batch_max)
+
+
+class BondsNeuralNetwork(nn.Module):
+    def __init__(self, network_params):
+        super(BondsNeuralNetwork, self).__init__()
+        print("Network params are ", network_params)
+        multiplier = network_params.get("multiplier")
+        hidden1_features = network_params.get("hidden1_features")
+        hidden2_features = network_params.get("hidden2_features")
+        dropout = network_params.get("dropout")
+
+        n_ipt_features = 9 * multiplier
+        hidden1_features *= multiplier
+        hidden2_features *= multiplier
+        n_opt_features = 1 * multiplier
+
+        if hidden2_features != 0:
+            self.layers = nn.Sequential(
+                nn.Linear(n_ipt_features, hidden1_features),
+                nn.LeakyReLU(),
+                nn.Linear(hidden1_features, hidden2_features),
+                nn.Dropout(dropout),
+                nn.LeakyReLU(),
+                nn.Linear(hidden2_features, n_opt_features)
+            )
+        else:
+            self.layers = nn.Sequential(
+                nn.Linear(n_ipt_features, hidden1_features),
+                nn.LeakyReLU(),
+                nn.Linear(hidden1_features, n_opt_features)
+            )
+        self.register_buffer('ipt_min',
+                             torch.full((1, 9*multiplier), torch.inf))
+        self.register_buffer('ipt_max',
+                             torch.full((1, 9*multiplier), -torch.inf))
+        self.register_buffer('opt_min',
+                             torch.full((1, multiplier), torch.inf))
+        self.register_buffer('opt_max',
+                             torch.full((1, multiplier), -torch.inf))
+
+    def forward(self, x):
+        x = (x - self.ipt_min) / (1e-8+(self.ipt_max - self.ipt_min))
         x = self.layers(x)
         x = torch.clamp(x, min=0)
         x = x * (self.opt_max - self.opt_min) + self.opt_min
@@ -388,65 +448,58 @@ def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
 def test_loop(dataloader, model, loss_fn):
     size = len(dataloader.dataset)
     test_loss = 0
+    num_batches = 0
 
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
 
             pred = model(X)
+            loss_fn_value = loss_fn(pred, y).item()
             test_loss += loss_fn(pred, y).item()
+            num_batches += 1
+            if num_batches > dataloader.max_batches:
+                break
 
-    return test_loss / size
+    return test_loss / num_batches
 
 
 def infer_loop(model, dataloader, trials, writer=None):
 
     X = BenchSpec.get_infer_data_from_dl(dataloader)
     X = X.to(device)
-    print(X.shape)
+    print("Size of the data for inference:", X.shape)
 
     total_time = 0
-    total_to_gpu = 0
-    total_to_cpu = 0
     with torch.no_grad():
         with torch.jit.optimized_execution(True):
-          model = model.to(DATATYPE)
-          model.eval()
-          traced_script_module = torch.jit.trace(model, X)
-          model = traced_script_module
-          model = torch.jit.freeze(model)
+            model = model.to(DATATYPE)
+            model.eval()
+            traced_script_module = torch.jit.trace(model, X)
+            model = traced_script_module
+            model = torch.jit.freeze(model)
         model = model.to(DATATYPE)
         model.eval()
         model.to(device)
 
-        X = X.to('cpu')
+        X = X.to(device)
+
+        # Do warmup
+        pred = model(X)
+        pred = model(X)
+        torch.cuda.synchronize()
+
         for i in range(trials):
-
-            transfer_start = time.time()
-            X = X.to(device)
-            torch.cuda.synchronize()
-            transfer_end = time.time()
-            transfer_to_gpu = transfer_end - transfer_start
-
             start = time.time()
             pred = model(X)
             torch.cuda.synchronize()
             end = time.time()
+            total_time += (end - start)
 
-            transfer_start = time.time()
-            pred = pred.to('cpu')
-            torch.cuda.synchronize()
-            transfer_end = time.time()
-            transfer_to_cpu = transfer_end - transfer_start
+        pred = pred.to('cpu')
+        torch.cuda.synchronize()
 
-            if i >= 2:
-                total_to_cpu += transfer_to_cpu
-                total_to_gpu += transfer_to_gpu
-                total_time += (end-start)
-        average_forward = total_time / (trials-2)
-        average_gpu = total_to_gpu / (trials-2)
-        average_cpu = total_to_cpu / (trials-2)
-    average_time = total_time / (trials-2)
+    average_time = total_time / trials
     if writer:
       writer.add_scalar('inference time', average_time*1000, 0)
     return average_time * 1000
@@ -481,16 +534,17 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
         test_loss = test_loop(test_dl, model, loss_fn)
         test_loop_end = time.time()
         print(f"Test loop time: {(test_loop_end - test_loop_start)}")
-        infer_start = time.time()
-        infer_time = infer_loop(model, test_dl, 100, writer)
-        infer_end = time.time()
-        print(f"Inference time: {(infer_end - infer_start)}")
         epoch_time = time.time() - epoch_start
         print(f"Epoch {t+1}\n-------------------------------")
         print(f"Test Error: \n Avg loss: {test_loss:>8f}, Time: {epoch_time:>8f}\n")
         if early_stopper.early_stop(test_loss):
             print(f'Early stopping at epoch {t+1} after max patience reached.')
             break
+
+    infer_start = time.time()
+    infer_time = infer_loop(model, test_dl, 100, writer)
+    infer_end = time.time()
+    print(f"Inference time: {(infer_end - infer_start)}")
     return test_loss, infer_time
 
 class BenchmarkSpecifier:
@@ -516,6 +570,8 @@ class BenchmarkSpecifier:
             return MiniWeatherSpecifier()
         elif name == 'binomial_options':
             return BinomialOptionsSpecifier()
+        elif name == 'bonds':
+            return BondsOptionsSpecifier()
 
 
 def get_all_infer_data(dataloader):
@@ -556,6 +612,19 @@ class BinomialOptionsSpecifier(BenchmarkSpecifier):
     def get_infer_data_from_dl(self, dataloader):
         return get_all_infer_data(dataloader)
 
+class BondsOptionsSpecifier(BenchmarkSpecifier):
+    def __init__(self):
+        super().__init__('bonds')
+
+    def get_nn_class(self):
+        return BondsNeuralNetwork
+
+    def get_target_type(self):
+        return None
+
+    def get_infer_data_from_dl(self, dataloader):
+        return get_all_infer_data(dataloader)
+
 @click.command()
 @click.option('--name', help='Name of the benchmark')
 @click.option('--config', default='config.yaml',
@@ -589,6 +658,11 @@ def main(name, config, architecture_config, output):
     else:
         validation_split = 0.2
 
+    if 'max_test_batches' in data_args:
+        max_test_batches = data_args['max_test_batches']
+    else:
+        max_test_batches = sys.maxsize
+
     global BenchSpec
     BenchSpec = BenchmarkSpecifier.get_specifier(name)
     target_type = BenchSpec.get_target_type()
@@ -617,6 +691,7 @@ def main(name, config, architecture_config, output):
 
     train_dl = DataLoader(ds, batch_size=batch_size, sampler=train_sampler)
     test_dl = DataLoader(ds, batch_size=batch_size*2, sampler=valid_sampler)
+    test_dl.max_batches = max_test_batches
 
     nn = BenchSpec.get_nn_class()
     early_stop_parms = config['early_stop_args']
