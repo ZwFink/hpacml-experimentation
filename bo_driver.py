@@ -155,7 +155,7 @@ def evaluate_architecture(eval_args):
             raise TrialFailureException()
         else:
             ax_client_hyperparams.complete_trial(trial_index = trial_index_hyperparams, 
-            raw_data=results
+                                                 raw_data=results
             )
     best_parameters = ax_client_hyperparams.get_best_parameters()
     print(best_parameters)
@@ -163,10 +163,11 @@ def evaluate_architecture(eval_args):
     inference_time = best_parameters[1][0]['inference_time']
     best_hypers = best_parameters[0]
     print("best hypers:", best_hypers)
+    result_data = {"average_mse": (error, 0), 'inference_time': (inference_time, 0)}
     data = {"average_mse": (error, 0), 'inference_time': (inference_time, 0), 'learning_rate': (best_hypers['learning_rate'], 0),
     'weight_decay': (best_hypers['weight_decay'], 0), 'epochs': (best_hypers['epochs'], 0), 'batch_size': (best_hypers['batch_size'], 0),
     'dropout': (best_hypers['dropout'], 0)}
-    return data, eval_args.arch_parameters
+    return result_data, data, eval_args.arch_parameters
 
 
 @click.command()
@@ -245,8 +246,10 @@ def main(config, benchmark, output_base, restart, output):
           tracking_metric_names=hyper_search_params.tracking_metric_names,
           outcome_constraints=hyper_search_params.parameter_constraints)
       try:
-        data_hyper, data_arch = evaluate_architecture(eval_args)
-        ax_client_architecture.complete_trial(trial_index = trial_index, raw_data=data_hyper)
+        data_objectives, data_hyper, data_arch = evaluate_architecture(eval_args)
+        ax_client_architecture.complete_trial(trial_index=trial_index,
+                                              raw_data=data_objectives
+                                              )
         n_success += 1
       except TrialFailureException:
         data_hyper, data_arch = {}, eval_args.arch_parameters

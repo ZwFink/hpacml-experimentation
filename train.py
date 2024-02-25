@@ -34,7 +34,7 @@ class HDF5DataSet(Dataset):
             self.target_dtype = torch.from_numpy(np.array([], dtype=self.opt_dataset.dtype)).dtype
         else:
             self.target_dtype = target_type
-        asert(len(self.ipt_dataset) == len(self.opt_dataset))
+        assert len(self.ipt_dataset) == len(self.opt_dataset)
         self.length = len(self.ipt_dataset)
         if load_entire:
             self.ipt_dataset = torch.tensor(self.ipt_dataset).to(self.target_type)
@@ -61,16 +61,25 @@ class HDF5DataSet(Dataset):
     def set_for_predicting_multiple_instances(self, n_instances):
         ipt_shape = self.ipt_dataset.shape
         opt_shape = self.opt_dataset.shape
-        assert(len(ipt_shape) == 2, "Input dataset must have 2 dimensions for compatiblity with multiple instances")
-        self.ipt_dataset = self.ipt_dataset.reshape((ipt_shape[0] // n_instances, ipt_shape[1] * n_instances))
-        self.opt_dataset = self.opt_dataset.reshape((opt_shape[0] // n_instances, opt_shape[1] * n_instances))
+        assert len(ipt_shape) == 2, "Input dataset must have 2 dimensions for compatibility with multiple instances"
+
+        # Calculate the maximum number of full instances that can be formed
+        max_full_ipt_instances = (ipt_shape[0] // n_instances) * n_instances
+        max_full_opt_instances = (opt_shape[0] // n_instances) * n_instances
+
+        # Slice the dataset to include only complete groups
+        self.ipt_dataset = self.ipt_dataset[:max_full_ipt_instances].reshape((-1, ipt_shape[1] * n_instances))
+        self.opt_dataset = self.opt_dataset[:max_full_opt_instances].reshape((-1, opt_shape[1] * n_instances))
+
         self.length = self.ipt_dataset.shape[0]
+
 
     def __len__(self):
         return self.length
-    
+
     def __getitem__(self, idx):
         return torch.tensor(self.ipt_dataset[idx]).to(self.target_type), torch.tensor(self.opt_dataset[idx]).to(self.target_type)
+
 
 class TmpCopyingHDF5DataSet(HDF5DataSet):
     """Often it's faster to read from /tmp/ than from a network drive. This class copies the file to /tmp/ and uses that copy."""
@@ -82,6 +91,7 @@ class TmpCopyingHDF5DataSet(HDF5DataSet):
     def copy_file(self, src, dst):
         import shutil
         shutil.copyfile(src, dst)
+
 
 class MiniWeatherNeuralNetwork(nn.Module):
     def __init__(self, network_params):
@@ -245,29 +255,45 @@ class ParticleFilterNeuralNetwork(nn.Module):
 class BinomialOptionsNeuralNetwork(nn.Module):
     def __init__(self, network_params):
         super(BinomialOptionsNeuralNetwork, self).__init__()
+        print("Network params are ", network_params)
         multiplier = network_params.get("multiplier")
-        n_hidden_features = network_params.get("hidden_features")
+        hidden1_features = network_params.get("hidden1_features")
+        hidden2_features = network_params.get("hidden2_features")
+        dropout = network_params.get("dropout")
 
         n_ipt_features = 5 * multiplier
-        n_hidden_features = n_hidden_features * multiplier
+        hidden1_features *= multiplier
+        hidden2_features *= multiplier
         n_opt_features = 1 * multiplier
 
-        print(f"n_ipt_features: {n_ipt_features}, n_hidden_features: {n_hidden_features}, n_opt_features: {n_opt_features}")
+        if hidden2_features != 0:
+            self.layers = nn.Sequential(
+                nn.Linear(n_ipt_features, hidden1_features),
+                nn.LeakyReLU(),
+                nn.Linear(hidden1_features, hidden2_features),
+                nn.Dropout(dropout),
+                nn.LeakyReLU(),
+                nn.Linear(hidden2_features, n_opt_features)
+            )
+        else:
+            self.layers = nn.Sequential(
+                nn.Linear(n_ipt_features, hidden1_features),
+                nn.LeakyReLU(),
+                nn.Linear(hidden1_features, n_opt_features)
+            )
+        self.register_buffer('ipt_min',
+                             torch.full((1, 5*multiplier), torch.inf))
+        self.register_buffer('ipt_max',
+                             torch.full((1, 5*multiplier), -torch.inf))
 
-        self.fc1 = nn.Linear(n_ipt_features, n_hidden_features)
-        self.fc2 = nn.Linear(n_hidden_features, n_opt_features)
-        self.activ_fn = nn.LeakyReLU()
-        self.register_buffer('ipt_min', torch.full((1,5), torch.inf))
-        self.register_buffer('ipt_max', torch.full((1,5), -torch.inf))
-
-        self.register_buffer('opt_min', torch.full((1,1), torch.inf))
-        self.register_buffer('opt_max', torch.full((1,1), -torch.inf))
+        self.register_buffer('opt_min',
+                             torch.full((1, multiplier), torch.inf))
+        self.register_buffer('opt_max',
+                             torch.full((1, multiplier), -torch.inf))
 
     def forward(self, x):
         x = (x - self.ipt_min) / (self.ipt_max - self.ipt_min)
-        x = self.fc1(x)
-        x = self.activ_fn(x)
-        x = self.fc2(x)
+        x = self.layers(x)
         x = torch.clamp(x, min=0)
         x = x * (self.opt_max - self.opt_min) + self.opt_min
         return x
@@ -310,6 +336,7 @@ def MAPE(actual, forecast):
     epsilon = 1e-8  # small constant to avoid division by zero
     mape = torch.mean(torch.abs((actual - forecast) / (actual + epsilon))) * 100
     return mape
+
 
 class EarlyStopper:
     def __init__(self, patience=1, min_delta_percent=1):
@@ -357,23 +384,26 @@ def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
             # writer.add_scalar('training loss', loss, epoch*len(dataloader) + batch)
             # print(f"Epoch: {epoch}, loss: {loss:>7f} [{current:>5d}/{size:>5d}]")
 
+
 def test_loop(dataloader, model, loss_fn):
     size = len(dataloader.dataset)
     test_loss = 0
-    
+
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
 
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
-    
+
     return test_loss / size
+
 
 def infer_loop(model, dataloader, trials, writer=None):
 
     X = BenchSpec.get_infer_data_from_dl(dataloader)
     X = X.to(device)
+    print(X.shape)
 
     total_time = 0
     total_to_gpu = 0
@@ -443,13 +473,21 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
 
     for t in range(model_epoch, epochs):
         epoch_start = time.time()
+        tl_start = time.time()
         train_loop(writer, train_dl, model, loss_fn, optimizer, scheduler, t+1)
+        tl_end = time.time()
+        print(f"Training time: {tl_end - tl_start}")
+        test_loop_start = time.time()
         test_loss = test_loop(test_dl, model, loss_fn)
-        test_loss_mape = test_loop(test_dl, model, MAPE)
+        test_loop_end = time.time()
+        print(f"Test loop time: {(test_loop_end - test_loop_start)}")
+        infer_start = time.time()
         infer_time = infer_loop(model, test_dl, 100, writer)
+        infer_end = time.time()
+        print(f"Inference time: {(infer_end - infer_start)}")
         epoch_time = time.time() - epoch_start
         print(f"Epoch {t+1}\n-------------------------------")
-        print(f"Test Error: \n Avg loss: {test_loss:>8f}, MAPE: {test_loss_mape:>8f}, Time: {epoch_time:>8f}\n")
+        print(f"Test Error: \n Avg loss: {test_loss:>8f}, Time: {epoch_time:>8f}\n")
         if early_stopper.early_stop(test_loss):
             print(f'Early stopping at epoch {t+1} after max patience reached.')
             break
@@ -479,6 +517,12 @@ class BenchmarkSpecifier:
         elif name == 'binomial_options':
             return BinomialOptionsSpecifier()
 
+
+def get_all_infer_data(dataloader):
+    data = list(dataloader)
+    # concatenate everything
+    item = torch.cat([x[0] for x in data])
+    return item
 class MiniWeatherSpecifier(BenchmarkSpecifier):
     def __init__(self):
         super().__init__('miniweather')
@@ -487,9 +531,7 @@ class MiniWeatherSpecifier(BenchmarkSpecifier):
     def get_target_type(self):
         return None
     def get_infer_data_from_dl(self, dataloader):
-        item = next(iter(dataloader))[0]
-        return item[0]
-
+        return get_all_infer_data(dataloader)[0:32]
 class ParticleFilterSpecifier(BenchmarkSpecifier):
     def __init__(self):
         super().__init__('particlefilter')
@@ -498,81 +540,96 @@ class ParticleFilterSpecifier(BenchmarkSpecifier):
     def get_target_type(self):
         return torch.float32
     def get_infer_data_from_dl(self, dataloader):
-        item = next(iter(dataloader))[0]
-        return item
+        return get_all_infer_data(dataloader)
+
 
 class BinomialOptionsSpecifier(BenchmarkSpecifier):
     def __init__(self):
         super().__init__('binomialoptions')
+
     def get_nn_class(self):
         return BinomialOptionsNeuralNetwork
+
     def get_target_type(self):
         return None
+
     def get_infer_data_from_dl(self, dataloader):
-        # TOOD: This should be changed to get all items from the dataloader
-        item = next(iter(dataloader))[0]
-        return item
+        return get_all_infer_data(dataloader)
 
 @click.command()
 @click.option('--name', help='Name of the benchmark')
-@click.option('--config', default='config.yaml', help='Path to the configuration file')
-@click.option('--architecture_config', default=None, help='Path to the configuration file for the architecture of this run')
-@click.option('--output', default='output.yaml', help='Path to write the output to')
+@click.option('--config', default='config.yaml',
+              help='Path to the configuration file')
+@click.option('--architecture_config', default=None,
+              help='Path to the configuration file for the architecture of this run')
+@click.option('--output', default='output.yaml',
+              help='Path to write the output to')
 def main(name, config, architecture_config, output):
-  # TODO: This we need to get from the configuration file
-  with open(config) as f:
-    config = yaml.load(f, Loader=yaml.FullLoader)
-  config = config[name]['train_args']
-  data_args = config['data_args']
-  file_path = data_args['train_test_dataset']
-  region_name = data_args['region_name']
+    # TODO: This we need to get from the configuration file
+    with open(config) as f:
+      config = yaml.load(f, Loader=yaml.FullLoader)
+    config = config[name]['train_args']
+    data_args = config['data_args']
+    file_path = data_args['train_test_dataset']
+    region_name = data_args['region_name']
 
-  with open(architecture_config) as f:
-    arch_params = yaml.load(f, Loader=yaml.FullLoader)
-    arch_params, hyper_params = arch_params['arch_parameters'], arch_params['hyper_parameters']
+    with open(architecture_config) as f:
+      arch_params = yaml.load(f, Loader=yaml.FullLoader)
+      arch_params, hyper_params = arch_params['arch_parameters'], arch_params['hyper_parameters']
   
-  global DATATYPE
-  # TODO: We need to get the region name and the input/output from the configuration file
-  if 'train_end_index' in data_args:
-    tei = data_args['train_end_index']
-  else:
-    tei = np.inf
+    global DATATYPE
+    # TODO: We need to get the region name and the input/output from the configuration file
+    if 'train_end_index' in data_args:
+      tei = data_args['train_end_index']
+    else:
+      tei = np.inf
+    
+    if 'test_split' in data_args:
+      validation_split = data_args['test_split']
+    else:
+        validation_split = 0.2
 
-  global BenchSpec
-  BenchSpec = BenchmarkSpecifier.get_specifier(name)
-  target_type = BenchSpec.get_target_type()
+    global BenchSpec
+    BenchSpec = BenchmarkSpecifier.get_specifier(name)
+    target_type = BenchSpec.get_target_type()
 
-  ds = TmpCopyingHDF5DataSet(file_path, region_name, 'input', 'output', 
-  train_end_index= tei, target_type = target_type, load_entire=data_args['load_entire'])
-  DATATYPE = ds.target_dtype
-  validation_split = 0.2
-  batch_size = hyper_params.get("batch_size")
-  shuffle_dataset = True
-  random_seed = 42
-  
-  dataset_size = len(ds)
-  indices = list(range(dataset_size))
-  split = int(np.floor(validation_split * dataset_size))
-  if shuffle_dataset:
-      np.random.seed(random_seed)
-      np.random.shuffle(indices)
-  
-  train_indices, val_indices = indices[split:], indices[:split]
-  train_sampler = SubsetRandomSampler(train_indices)
-  valid_sampler = SubsetRandomSampler(val_indices)
+    ds = TmpCopyingHDF5DataSet(file_path, region_name, 'input', 'output',  
+                               train_end_index=tei, target_type=target_type, 
+                               load_entire=data_args['load_entire']
+                               )
+    if 'multiplier' in arch_params:
+        ds.set_for_predicting_multiple_instances(arch_params['multiplier'])
+    DATATYPE = ds.target_dtype
+    batch_size = hyper_params.get("batch_size")
+    shuffle_dataset = True
+    random_seed = 42
 
-  train_dl = DataLoader(ds, batch_size=batch_size, sampler=train_sampler)
-  test_dl = DataLoader(ds, batch_size=1, sampler=valid_sampler)
+    dataset_size = len(ds)
+    indices = list(range(dataset_size))
+    split = int(np.floor(validation_split * dataset_size))
+    if shuffle_dataset:
+        np.random.seed(random_seed)
+        np.random.shuffle(indices)
 
+    train_indices, val_indices = indices[split:], indices[:split]
+    train_sampler = SubsetRandomSampler(train_indices)
+    valid_sampler = SubsetRandomSampler(val_indices)
 
-  nn = BenchSpec.get_nn_class()
-  early_stop_parms = config['early_stop_args']
-  early_stopper = EarlyStopper(early_stop_parms['patience'], early_stop_parms['min_delta_percent'])
-  test_loss, runtime = train_test_infer_loop(nn, train_dl, test_dl, early_stopper, arch_params, hyper_params)
-  results = {"average_mse": test_loss, 'inference_time': runtime}
-  print(results)
-  with open(output, 'w') as f:
-    yaml.dump(results, f)
+    train_dl = DataLoader(ds, batch_size=batch_size, sampler=train_sampler)
+    test_dl = DataLoader(ds, batch_size=batch_size*2, sampler=valid_sampler)
+
+    nn = BenchSpec.get_nn_class()
+    early_stop_parms = config['early_stop_args']
+    early_stopper = EarlyStopper(early_stop_parms['patience'], 
+                                 early_stop_parms['min_delta_percent'])
+    test_loss, runtime = train_test_infer_loop(nn, train_dl, test_dl, 
+                                               early_stopper, arch_params, 
+                                               hyper_params
+                                               )
+    results = {"average_mse": test_loss, 'inference_time': runtime}
+    print(results)
+    with open(output, 'w') as f:
+        yaml.dump(results, f)
 
 if __name__ == '__main__':
     main()
