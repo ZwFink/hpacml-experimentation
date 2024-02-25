@@ -489,15 +489,27 @@ def infer_loop(model, dataloader, trials, writer=None):
         pred = model(X)
         torch.cuda.synchronize()
 
-        for i in range(trials):
+        for i in range(10):
             start = time.time()
             pred = model(X)
             torch.cuda.synchronize()
             end = time.time()
             total_time += (end - start)
 
-        pred = pred.to('cpu')
-        torch.cuda.synchronize()
+        average_time = total_time / 10
+        # If average time is more than 1 second,
+        # we are not going to do the 100 trials
+        # 10 is probably enough
+        if average_time > 1:
+            return average_time * 1000
+
+        total_time = 0
+        for i in range(trials):
+            start = time.time()
+            pred = model(X)
+            torch.cuda.synchronize()
+            end = time.time()
+            total_time += (end - start)
 
     average_time = total_time / trials
     if writer:
