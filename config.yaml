@@ -173,7 +173,11 @@ binomial_options:
       region_name: 'BinomialOptionsKernel'
       train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/binomial_options_16777216.h5'
       load_entire: true
-      train_end_index: 131072
+      train_end_index: 6194304 
+      # We have so much data for this one,
+      # performance is affected a lot by 
+      # the amount of test data
+      test_split: 0.9
     early_stop_args:
       patience: 5
       min_delta_percent: 10
@@ -208,7 +212,7 @@ binomial_options:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 15
+        value: 10
       - name: batch_size
         type: fixed
         value: 32
