@@ -169,7 +169,7 @@ class MiniWeatherNeuralNetwork(nn.Module):
         for x, y in train_dl:
             x = x.to(device)  # Assuming x is of shape [N, C, H, W]
             y = y.to(device)
-            #transpose to [C, N, H, W]
+            # transpose to [C, N, H, W]
             x = x.transpose(0, 1)
             # reshape to [ C, N*H*W]
             x = x.reshape(x.shape[0], -1)
