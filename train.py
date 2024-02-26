@@ -28,6 +28,7 @@ class HDF5DataSet(Dataset):
         self.file_path = file_path
         self.target_type = target_type
         self.train_end_index = train_end_index
+        self.load_entire = load_entire
 
         self.ipt_dataset, self.opt_dataset = self.get_datasets(group_name, ipt_dataset, opt_dataset)
         if target_type is None:
@@ -37,14 +38,15 @@ class HDF5DataSet(Dataset):
         assert len(self.ipt_dataset) == len(self.opt_dataset)
         self.length = len(self.ipt_dataset)
         if load_entire:
-            self.ipt_dataset = torch.tensor(self.ipt_dataset).to(self.target_type)
-            self.opt_dataset = torch.tensor(self.opt_dataset).to(self.target_type)
+            tgt = self.target_type
+            self.ipt_dataset = torch.tensor(self.ipt_dataset).to(tgt)
+            self.opt_dataset = torch.tensor(self.opt_dataset).to(tgt)
 
     def get_datasets(self, group_name, ipt_dataset, opt_dataset):
         group = self.open_file[group_name]
         ipt_dataset = group[ipt_dataset]
         opt_dataset = group[opt_dataset]
-        if(ipt_dataset.shape[0] == 1):
+        if (ipt_dataset.shape[0] == 1):
             print(f"WARNING: Found left dimension of 1 in shape {ipt_dataset.shape},"
                   f" assuming this is not necessary and removing it."
                   f" Reshaping to {ipt_dataset.shape[1:]}"
@@ -73,24 +75,23 @@ class HDF5DataSet(Dataset):
 
         self.length = self.ipt_dataset.shape[0]
 
+    def input_as_torch_tensor(self):
+        if self.load_entire:
+            return self.ipt_dataset.clone().detach()
+        else:
+            return torch.tensor(self.ipt_dataset).to(self.target_type)
 
     def __len__(self):
         return self.length
 
     def __getitem__(self, idx):
-        return torch.tensor(self.ipt_dataset[idx]).to(self.target_type), torch.tensor(self.opt_dataset[idx]).to(self.target_type)
-
-
-class TmpCopyingHDF5DataSet(HDF5DataSet):
-    """Often it's faster to read from /tmp/ than from a network drive. This class copies the file to /tmp/ and uses that copy."""
-    def __init__(self, file_path, group_name, ipt_dataset, opt_dataset, train_end_index = np.inf, target_type=None, load_entire = False):
-        self.tmp_file_path = f'/tmp/{os.path.basename(file_path)}'
-        self.copy_file(file_path, self.tmp_file_path)
-        super().__init__(self.tmp_file_path, group_name, ipt_dataset, opt_dataset, train_end_index, target_type, load_entire)
-
-    def copy_file(self, src, dst):
-        import shutil
-        shutil.copyfile(src, dst)
+        if self.load_entire:
+            return (self.ipt_dataset[idx].clone().detach().to(self.target_type),
+                    self.opt_dataset[idx].clone().detach().to(self.target_type)
+                )
+        else:
+            return (torch.tensor(self.ipt_dataset[idx]).to(self.target_type),
+                    torch.tensor(self.opt_dataset[idx]).to(self.target_type))
 
 
 class MiniWeatherNeuralNetwork(nn.Module):
@@ -336,7 +337,7 @@ class BondsNeuralNetwork(nn.Module):
                              torch.full((1, multiplier), -torch.inf))
 
     def forward(self, x):
-        x = (x - self.ipt_min) / (1e-8+(self.ipt_max - self.ipt_min))
+        x = (x - self.ipt_min) / ((self.ipt_max - self.ipt_min))
         x = self.layers(x)
         x = torch.clamp(x, min=0)
         x = x * (self.opt_max - self.opt_min) + self.opt_min
@@ -450,7 +451,9 @@ def test_loop(dataloader, model, loss_fn):
 
 def infer_loop(model, dataloader, trials, writer=None):
 
+    read_time = time.time()
     X = BenchSpec.get_infer_data_from_dl(dataloader)
+    print("Read time: ", time.time() - read_time)
     X = X.to(device)
     print("Size of the data for inference:", X.shape)
 
@@ -468,10 +471,12 @@ def infer_loop(model, dataloader, trials, writer=None):
 
         X = X.to(device)
 
+        warmup_time = time.time()
         # Do warmup
         pred = model(X)
         pred = model(X)
         torch.cuda.synchronize()
+        print("Warmup time: ", time.time() - warmup_time)
 
         for i in range(10):
             start = time.time()
@@ -575,24 +580,43 @@ def get_all_infer_data(dataloader):
     # concatenate everything
     item = torch.cat([x[0] for x in data])
     return item
+
+
 class MiniWeatherSpecifier(BenchmarkSpecifier):
     def __init__(self):
         super().__init__('miniweather')
+
     def get_nn_class(self):
         return MiniWeatherNeuralNetwork
+
     def get_target_type(self):
         return None
+
     def get_infer_data_from_dl(self, dataloader):
-        return get_all_infer_data(dataloader)[0:32]
+        return self.get_infer_data_from_ds(dataloader.dataset)
+
+    def get_infer_data_from_ds(self, dataset):
+        # return self.get_infer_data_from_ds(dataset)
+        return dataset.input_as_torch_tensor()[0:32]
+
+
 class ParticleFilterSpecifier(BenchmarkSpecifier):
     def __init__(self):
         super().__init__('particlefilter')
+
     def get_nn_class(self):
         return ParticleFilterNeuralNetwork
+
     def get_target_type(self):
         return torch.float32
+
     def get_infer_data_from_dl(self, dataloader):
+        # Keeping this one the same for now, as PF has
+        # made lots of progress
         return get_all_infer_data(dataloader)
+
+    def get_infer_data_from_ds(self, dataset):
+        return dataset.input_as_torch_tensor()
 
 
 class BinomialOptionsSpecifier(BenchmarkSpecifier):
@@ -606,7 +630,11 @@ class BinomialOptionsSpecifier(BenchmarkSpecifier):
         return None
 
     def get_infer_data_from_dl(self, dataloader):
-        return get_all_infer_data(dataloader)
+        return self.get_infer_data_from_ds(dataloader.dataset)
+        
+    def get_infer_data_from_ds(self, dataset):
+        return dataset.input_as_torch_tensor()
+
 
 class BondsOptionsSpecifier(BenchmarkSpecifier):
     def __init__(self):
@@ -619,7 +647,11 @@ class BondsOptionsSpecifier(BenchmarkSpecifier):
         return None
 
     def get_infer_data_from_dl(self, dataloader):
-        return get_all_infer_data(dataloader)
+        return self.get_infer_data_from_ds(dataloader.dataset)
+
+    def get_infer_data_from_ds(self, dataset):
+        return dataset.input_as_torch_tensor()
+
 
 @click.command()
 @click.option('--name', help='Name of the benchmark')
@@ -663,10 +695,10 @@ def main(name, config, architecture_config, output):
     BenchSpec = BenchmarkSpecifier.get_specifier(name)
     target_type = BenchSpec.get_target_type()
 
-    ds = TmpCopyingHDF5DataSet(file_path, region_name, 'input', 'output',  
-                               train_end_index=tei, target_type=target_type, 
-                               load_entire=data_args['load_entire']
-                               )
+    ds = HDF5DataSet(file_path, region_name, 'input', 'output',
+                     train_end_index=tei, target_type=target_type,
+                     load_entire=data_args['load_entire']
+                    )
     if 'multiplier' in arch_params:
         ds.set_for_predicting_multiple_instances(arch_params['multiplier'])
     DATATYPE = ds.target_dtype
