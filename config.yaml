@@ -82,7 +82,7 @@ miniweather:
     data_args:
       region_name: 'MiniWeatherTimestep'
       train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/miniweather_768_384.h5'
-      load_entire: true
+      load_entire: false
       train_end_index: 1000
     early_stop_args:
       patience: 3
