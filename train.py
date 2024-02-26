@@ -110,51 +110,36 @@ class MiniWeatherNeuralNetwork(nn.Module):
         elif activ_fn_name == "tanh":
             self.activ_fn = nn.Tanh()
 
-
         c1ks = conv1_kernel_size
         c1s = conv1_stride
-        
-        self.dropout = nn.Dropout(dropout)
-        pad_width, pad_height = (2, 2)
-        padding_conv2 = (conv1_kernel_size - 1) // 2
-        pad_width, pad_height = padding_conv2, padding_conv2
-        if conv2_kernel_size != 0:
-          self.conv1 = nn.Conv2d(in_channels=4, out_channels=conv1_out_channels, 
-                                 kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
-                                 padding=(pad_width, pad_height)
-                                 )
 
-          padding_conv2 = (conv2_kernel_size - 1) // 2
-          self.conv2 = nn.Conv2d(in_channels=conv1_out_channels, out_channels=4, 
-                                 kernel_size=(conv2_kernel_size, conv2_kernel_size), 
-                                 stride=(1, 1), padding=(padding_conv2, padding_conv2)
-                                 )
-          self.fp = nn.Sequential(self.conv1, self.activ_fn, self.conv2, self.activ_fn, self.dropout)
+        self.dropout = nn.Dropout(dropout)
+        if conv2_kernel_size != 0:
+            self.conv1 = nn.Conv2d(in_channels=4,
+                                   out_channels=conv1_out_channels,
+                                   kernel_size=(c1ks, c1ks), stride=(c1s, c1s),
+                                   padding='same',
+                                   )
+
+            self.conv2 = nn.Conv2d(in_channels=conv1_out_channels,
+                                   out_channels=4,
+                                   kernel_size=(conv2_kernel_size,
+                                                conv2_kernel_size),
+                                   stride=(1, 1), padding='same'
+                                   )
+            self.fp = nn.Sequential(self.conv1, self.activ_fn, 
+                                    self.dropout, self.conv2, self.activ_fn
+                                    )
         else:
             # Here, we ignore Conv1 out channels
             self.conv1 = nn.Conv2d(in_channels=4, out_channels=4, 
-                                     kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
-                                     padding=(pad_width, pad_height)
-                                     )
+                                   kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
+                                   padding='same'
+                                   )
             self.fp = nn.Sequential(self.conv1, self.activ_fn, self.dropout)
-            
 
-        self.register_buffer('min', torch.full((4,1), torch.inf))
-        self.register_buffer('max', torch.full((4,1), -torch.inf))
-
-
-    def calculate_padding(self, input_height, input_width, kernel_size, stride):
-        # Unpack kernel size and stride
-        kernel_height, kernel_width = kernel_size
-        stride_height, stride_width = stride
-        
-        # Calculate padding for height
-        padding_height = ((stride_height * (input_height - 1)) + kernel_height - input_height) / 2
-        
-        # Calculate padding for width
-        padding_width = ((stride_width * (input_width - 1)) + kernel_width - input_width) / 2
-        
-        return (int(padding_height), int(padding_width))
+        self.register_buffer('min', torch.full((4, 1), torch.inf))
+        self.register_buffer('max', torch.full((4, 1), -torch.inf))
 
     def forward(self, x):
         x = (x - self.min) / (self.max - self.min)
@@ -188,7 +173,6 @@ class MiniWeatherNeuralNetwork(nn.Module):
         # print the number of non-zeros in max
         print("Min is ", self.min)
         print("Max is ", self.max)
-
 
 
 class ParticleFilterNeuralNetwork(nn.Module):
