@@ -54,18 +54,18 @@ parsl_config = Config(
             cores_per_worker=15,
             worker_debug=True,
             available_accelerators=1,
-            label="GPU Executor",
+            label="GPU_Executor",
             provider=SlurmProvider(
                 partition="gpuA100x4",
                 account="mzu-delta-gpu",
                 scheduler_options="#SBATCH --gpus-per-task=1 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
-                worker_init='conda deactivate; source ~/activate.sh',
+                worker_init='source ~/activate.sh',
                 nodes_per_block=1,
                 max_blocks=9,
                 init_blocks=1,
                 exclusive=False,
                 mem_per_node=35,
-                walltime="0:4:00",
+                walltime="9:4:00",
                 cmd_timeout=500,
                 launcher=SrunLauncher()
             )
