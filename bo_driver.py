@@ -30,12 +30,50 @@ from botorch.acquisition import qExpectedImprovement
 from ax.modelbridge.generation_strategy import GenerationStep, GenerationStrategy
 from ax.modelbridge.registry import ModelRegistryBase, Models
 from ax.service.ax_client import AxClient, ObjectiveProperties
+import parsl
+from parsl.app.app import python_app
+from parsl.app.app import join_app
+from parsl.app.app import bash_app
+from parsl.config import Config
+from parsl.providers import SlurmProvider
+from parsl.launchers import SrunLauncher
+from parsl.executors import HighThroughputExecutor
+from parsl import set_stream_logger
 
-TRIALS_ARCH=2
-TRIALS_HYPERPARMS=3
+TRIALS_ARCH = 2
+TRIALS_HYPERPARMS = 3
 
 class TrialFailureException(Exception):
     pass
+
+
+parsl_config = Config(
+    retries=2,
+    executors=[
+        HighThroughputExecutor(
+            cores_per_worker=15,
+            worker_debug=True,
+            available_accelerators=1,
+            label="GPU Executor",
+            provider=SlurmProvider(
+                partition="gpuA100x4",
+                account="mzu-delta-gpu",
+                scheduler_options="#SBATCH --gpus-per-task=1 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
+                worker_init='conda deactivate; source ~/activate.sh',
+                nodes_per_block=1,
+                max_blocks=9,
+                init_blocks=1,
+                exclusive=False,
+                mem_per_node=35,
+                walltime="0:4:00",
+                cmd_timeout=500,
+                launcher=SrunLauncher()
+            )
+        )
+    ]
+)
+
+parsl.load(parsl_config)
 
 class OutputManager:
     def __init__(self, directory_prefix, benchmark_name, append_benchmark_name=True):
@@ -77,6 +115,7 @@ class BOParameterWrapper:
     def get_parameter_names(self):
         return [p['name'] for p in self.parameter_space]
 
+
 def get_params(config):
     parm_space = config['parameter_space']
     if 'constraints' in config:
@@ -105,6 +144,7 @@ def get_trial_output_data(output_columns, data_dict):
           data[k] = data_dict[k]
     return data
 
+
 @dataclass
 class EvalArgs:
     benchmark_name: str
@@ -114,49 +154,82 @@ class EvalArgs:
     ax_client_hypers: AxClient
     hyper_parameters: dict
 
-def evaluate_hyperparameters(eval_args):
-    config_filename = eval_args.config_filename
-    arch_parameters = eval_args.arch_parameters
-    hyper_parameters = eval_args.hyper_parameters
+
+@python_app
+def evaluate_hyperparameters(config_filename, arch_parameters,
+                             hyper_parameters, config_global,
+                             train_script, benchmark_name,
+                             trial_index):
+    import tempfile
+    import sh
+    import yaml
+    import sys
 
     input_config_tmp = tempfile.NamedTemporaryFile(mode='w', prefix='/tmp/', delete=False)
     output_config_tmp = tempfile.NamedTemporaryFile(mode='w', prefix='/tmp/', delete=False)
-    # write arch_parameters and hyper_parameters to a yaml file
     print("Tmp file name is:", input_config_tmp.name)
+    
     with open(input_config_tmp.name, 'w') as f:
         yaml.dump({'arch_parameters': arch_parameters, 'hyper_parameters': hyper_parameters}, f)
 
-    command = sh.Command('python3').bake(eval_args.config_global['train_script'], 
-    '--name', eval_args.benchmark_name,
+    command = sh.Command('python3').bake(train_script, 
+    '--name', benchmark_name,
     '--config', config_filename, 
     '--architecture_config', input_config_tmp.name, '--output', output_config_tmp.name
     )
     print(str(command))
+    
     try:
         command(_out=sys.stdout, _err=sys.stderr)
     except sh.ErrorReturnCode as e:
         print("Error running command")
         print(e)
         return {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}
+
     with open(output_config_tmp.name, 'r') as f:
         results = yaml.safe_load(f)
+
     error, inference_time = results['average_mse'], results['inference_time']
-    return {"average_mse": (error, 0), 'inference_time': (inference_time, 0)}
+    return trial_index, {"average_mse": (error, 0), 'inference_time': (inference_time, 0)}
+
+
+def submit_parallel_trial(parameters_hyperparams, trial_index, eval_args):
+    results = evaluate_hyperparameters(
+        config_filename=eval_args.config_filename,
+        arch_parameters=eval_args.arch_parameters,
+        hyper_parameters=parameters_hyperparams,
+        config_global=eval_args.config_global,
+        train_script=eval_args.config_global['train_script'],
+        benchmark_name=eval_args.benchmark_name,
+        trial_index=trial_index
+    )
+    return results
+
 
 def evaluate_architecture(eval_args):
     ax_client_hyperparams = eval_args.ax_client_hypers
-    for i in range(TRIALS_HYPERPARMS):
-        parameters_hyperparams, trial_index_hyperparams = ax_client_hyperparams.get_next_trial()
-        eval_args.hyper_parameters= parameters_hyperparams
-        print(parameters_hyperparams)
-        results = evaluate_hyperparameters(eval_args)
-        if results['average_mse'][0] == 1e9:
-            ax_client_hyperparams.log_trial_failure(trial_index_hyperparams)
-            raise TrialFailureException()
-        else:
-            ax_client_hyperparams.complete_trial(trial_index = trial_index_hyperparams, 
-                                                 raw_data=results
-            )
+    max_parallelism = ax_client_hyperparams.get_max_parallelism()[-1][1]
+    print("Max parallelism:", ax_client_hyperparams.get_max_parallelism())
+
+    for i in range(0, TRIALS_HYPERPARMS, max_parallelism):
+        job_futures = list()
+        print(f"Running trials {i} to {i + max_parallelism}")
+        tst = time.time()
+        for j in range(max_parallelism):
+            if not (i + j < TRIALS_HYPERPARMS):
+                continue
+            params, trial_index = ax_client_hyperparams.get_next_trial()
+            job_futures.append(submit_parallel_trial(params,
+                                                     trial_index,
+                                                     eval_args))
+
+        results = [f.result() for f in job_futures]
+        tend = time.time()
+        print(f'Finished running trials {i} to {i + max_parallelism} in {tend - tst} seconds')
+        for res in results:
+            trial_index, result = res
+            process_result(trial_index, result, ax_client_hyperparams)
+
     best_parameters = ax_client_hyperparams.get_best_parameters()
     print(best_parameters)
     error = best_parameters[1][0]['average_mse']
@@ -168,6 +241,16 @@ def evaluate_architecture(eval_args):
     'weight_decay': (best_hypers['weight_decay'], 0), 'epochs': (best_hypers['epochs'], 0), 'batch_size': (best_hypers['batch_size'], 0),
     'dropout': (best_hypers['dropout'], 0)}
     return result_data, data, eval_args.arch_parameters
+
+
+def process_result(trial_index, result, ax_client_hyperparams):
+    if result['average_mse'][0] == 1e9:
+        ax_client_hyperparams.log_trial_failure(trial_index)
+        raise TrialFailureException()
+    else:
+        ax_client_hyperparams.complete_trial(trial_index=trial_index,
+                                             raw_data=result
+                                            )
 
 
 @click.command()
