@@ -194,6 +194,9 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
 
 
 def submit_parallel_trial(parameters_hyperparams, trial_index, eval_args):
+    # This causes issues when submitting one job from another, see:
+    # https://bugs.schedmd.com/show_bug.cgi?id=14298
+    del os.environ['SLURM_CPU_BIND']
     results = evaluate_hyperparameters(
         config_filename=eval_args.config_filename,
         arch_parameters=eval_args.arch_parameters,
