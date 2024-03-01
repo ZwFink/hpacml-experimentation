@@ -218,7 +218,7 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir):
         parallelism=1,
         exclusive=False,
         mem_per_node=35,
-        walltime="0:10:00",
+        walltime="9:10:00",
         cmd_timeout=500,
         launcher=SrunLauncher()
     )
