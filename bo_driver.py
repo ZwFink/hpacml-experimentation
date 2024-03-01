@@ -319,7 +319,7 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
   
         # print pareto optimal parameters 
         if n_success > 0:
-          best_parameters = ax_client_architecture.get_pareto_optimal_parameters()
+          best_parameters = ax_client_architecture.get_pareto_optimal_parameters(use_model_predictions=False)
         else:
           best_parameters = {}
         print("pareto parameters:", best_parameters)

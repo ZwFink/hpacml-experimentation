@@ -17,6 +17,7 @@ import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
 import math
+import scipy
 
 DATATYPE = torch.float32
 BenchSpec = None
@@ -471,6 +472,7 @@ def infer_loop(model, dataloader, trials, writer=None):
 
         X = X.to(device)
 
+        times = np.zeros(trials, dtype=np.float64)
         warmup_time = time.time()
         # Do warmup
         pred = model(X)
@@ -478,32 +480,21 @@ def infer_loop(model, dataloader, trials, writer=None):
         torch.cuda.synchronize()
         print("Warmup time: ", time.time() - warmup_time)
 
-        for i in range(10):
-            start = time.time()
-            pred = model(X)
-            torch.cuda.synchronize()
-            end = time.time()
-            total_time += (end - start)
 
-        average_time = total_time / 10
-        # If average time is more than 1 second,
-        # we are not going to do the 100 trials
-        # 10 is probably enough
-        if average_time > 1:
-            return average_time * 1000
-
-        total_time = 0
         for i in range(trials):
             start = time.time()
             pred = model(X)
             torch.cuda.synchronize()
             end = time.time()
-            total_time += (end - start)
+            times[i] = (end - start) * 1000
+    sem = scipy.stats.sem(times)
+    sem = sem.item()
+    mean = np.mean(times).item()
 
     average_time = total_time / trials
     if writer:
       writer.add_scalar('inference time', average_time*1000, 0)
-    return average_time * 1000
+    return mean, sem
 
 def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_params, hyper_params):
     learning_rate = hyper_params.get("learning_rate")
@@ -543,10 +534,11 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
             break
 
     infer_start = time.time()
-    infer_time = infer_loop(model, test_dl, 100, writer)
+    infer_time, infer_sem = infer_loop(model, test_dl, 100, writer)
     infer_end = time.time()
     print(f"Inference time: {(infer_end - infer_start)}")
-    return test_loss, infer_time
+    # YAML doesn't know how to handle tuples, so we return a list
+    return test_loss, [infer_time, infer_sem]
 
 class BenchmarkSpecifier:
     def __init__(self, name):

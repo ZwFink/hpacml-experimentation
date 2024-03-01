@@ -112,7 +112,8 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
         results = yaml.safe_load(f)
 
     error, inference_time = results['average_mse'], results['inference_time']
-    return trial_index, {"average_mse": (error, 0), 'inference_time': (inference_time, 0)}
+    # inference_time is a list [inference_time, sem]
+    return trial_index, {"average_mse": (error, 0), 'inference_time': inference_time}
 
 
 def submit_parallel_trial(parameters_hyperparams, trial_index, eval_args):
@@ -143,6 +144,7 @@ def evaluate_architecture(ax_client, eval_args):
 
     max_parallelism = ax_client_hyperparams.get_max_parallelism()[-1][1]
     print("Max parallelism:", ax_client_hyperparams.get_max_parallelism())
+    trial_to_runtime_sem = dict()
 
     for i in range(0, TRIALS_HYPERPARMS, max_parallelism):
         job_futures = list()
@@ -161,16 +163,20 @@ def evaluate_architecture(ax_client, eval_args):
         print(f'Finished running trials {i} to {i + max_parallelism} in {tend - tst} seconds')
         for res in results:
             trial_index, result = res
+            result['inference_time'] = tuple(result['inference_time'])
+            trial_to_runtime_sem[trial_index] = result['inference_time'][1]
             process_result(trial_index, result, ax_client_hyperparams)
 
-    best_parameters = ax_client_hyperparams.get_best_parameters()
+    best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
+    best_parameters = (best_parameters, results)
+    best_sem = trial_to_runtime_sem[best_index]
     print(best_parameters)
     error = best_parameters[1][0]['average_mse']
     inference_time = best_parameters[1][0]['inference_time']
     best_hypers = best_parameters[0]
     print("best hypers:", best_hypers)
-    result_data = {"average_mse": [error, 0], 'inference_time': [inference_time, 0]}
-    data = {"average_mse": [error, 0], 'inference_time': [inference_time, 0], 'learning_rate': [best_hypers['learning_rate'], 0],
+    result_data = {"average_mse": [error, 0], 'inference_time': [inference_time, best_sem]}
+    data = {"average_mse": [error, 0], 'inference_time': [inference_time, best_sem], 'learning_rate': [best_hypers['learning_rate'], 0],
     'weight_decay': [best_hypers['weight_decay'], 0], 'epochs': [best_hypers['epochs'], 0], 'batch_size': [best_hypers['batch_size'], 0],
     'dropout': [best_hypers['dropout'], 0]}
     return result_data, data, eval_args.arch_parameters
