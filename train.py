@@ -8,12 +8,15 @@ import torch.nn.functional as F
 import h5py
 from torch.utils.data import SubsetRandomSampler
 import sys
+import glob
 import yaml
 import os
 import time
+import sh
 import numpy as np
 import pandas as pd
 import numpy as np
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 import math
@@ -92,6 +95,17 @@ class HDF5DataSet(Dataset):
         else:
             return (torch.tensor(self.ipt_dataset[idx]).to(self.target_type),
                     torch.tensor(self.opt_dataset[idx]).to(self.target_type))
+
+
+class GeneratorHDF5DataSet(Dataset):
+    def __init__(self, generation_command,
+                 target_path, group_name,
+                 ipt_dataset, opt_dataset, target_type=None
+                 ):
+        generation_command()
+        super().__init__(target_path, group_name, 
+                         ipt_dataset, opt_dataset, target_type
+                         )
 
 
 class MiniWeatherNeuralNetwork(nn.Module):
@@ -358,23 +372,182 @@ class BondsNeuralNetwork(nn.Module):
             self.opt_max = torch.max(self.opt_max, batch_max)
 
 
+class MiniBUDENeuralNetwork(nn.Module):
+    def __init__(self, params):
+        super(MiniBUDENeuralNetwork, self).__init__()
+        print("Params are", params)
+        multiplier = params.get("multiplier")
+        h1_feature_multiplier = params.get("hidden1_feature_mult")
+        h2_feature_multiplier = params.get("hidden2_feature_mult")
+        h3_feature_multiplier = params.get("hidden3_feature_mult")
+        h4_feature_multiplier = params.get("hidden4_feature_mult")
+        dropout = params.get("dropout")
+
+        n_pose_values = 6 * multiplier
+
+        # Magic number: 21552 is the number of constant values
+        # in each tensor entry based on the input deck.
+        n_input_features = n_pose_values + 21552
+        n_output_features = 1 * multiplier
+
+        h1_features = n_input_features * h1_feature_multiplier
+        h2_features = h1_features * h2_feature_multiplier
+        h3_features = h2_features * h3_feature_multiplier
+        h4_features = h3_features * h4_feature_multiplier
+
+        layers = [h1_features, h2_features, h3_features, h4_features]
+        layers = list(map(int, layers))
+
+        layers_backwards = layers[::-1]
+        while layers_backwards[-1] < n_output_features:
+            layers_backwards.pop()
+
+        layers = layers_backwards[::-1]
+        layers = list(filter(lambda x: x > 0, layers))
+        # input_layer = nn.Linear(n_input_features, layers[0])
+        input_layer = nn.Linear(n_input_features, n_input_features)
+        nn_layers = [input_layer, nn.PReLU()]
+        l0 = nn.Linear(n_input_features, layers[0])
+        nn_layers += [l0, nn.PReLU()]
+        print('Layers are ', layers)
+        for i in range(1, len(layers)):
+            nn_layers.append(nn.Linear(layers[i-1], layers[i]))
+            nn_layers.append(nn.PReLU())
+            nn_layers.append(nn.Dropout(dropout))
+        nn_layers.append(nn.Linear(layers[-1], n_output_features))
+
+        self.sequential = nn.Sequential(*nn_layers)
+
+        self.register_buffer('ipt_stdev',
+                             torch.full((1, n_input_features), torch.inf)
+                             )
+        self.register_buffer('ipt_mean',
+                             torch.full((1, n_input_features), -torch.inf)
+                             )
+        self.register_buffer('opt_stdev',
+                             torch.full((1, n_output_features), torch.inf)
+                             )
+        self.register_buffer('opt_mean',
+                             torch.full((1, n_output_features), -torch.inf)
+                             )
+
+    def forward(self, x):
+        x = (x-self.ipt_mean) / (self.ipt_stdev)
+        x = self.sequential(x)
+        x = (x * self.opt_stdev) + self.opt_mean
+        return x
+
+    def calculate_and_save_normalization_parameters(self, train_dl):
+        dataset = train_dl.dataset
+        ipt_stdev = np.std(dataset.ipt_dataset, axis=0)
+        ipt_mean = np.mean(dataset.ipt_dataset, axis=0)
+
+        opt_stdev = np.std(dataset.opt_dataset, axis=0)
+        opt_mean = np.mean(dataset.opt_dataset, axis=0)
+
+        self.ipt_stdev = torch.from_numpy(ipt_stdev).to(DATATYPE)
+        self.ipt_mean = torch.from_numpy(ipt_mean).to(DATATYPE)
+        self.opt_stdev = torch.from_numpy(opt_stdev).to(DATATYPE)
+        self.opt_mean = torch.from_numpy(opt_mean).to(DATATYPE)
+
+        self.ipt_stdev = torch.max(self.ipt_stdev,
+                                   torch.ones_like(self.ipt_stdev)
+                                   )
+        self.opt_stdev = torch.max(self.opt_stdev,
+                                   torch.ones_like(self.opt_stdev)
+                                   )
+
+        print("Input stdev shape: ", ipt_stdev.shape)
+
+
+class ConfigurableNumHiddenLayersMiniBUDENeuralNetwork(nn.Module):
+    def __init__(self, params):
+        super(ConfigurableNumHiddenLayersMiniBUDENeuralNetwork, self).__init__()
+        print("Params are", params)
+        multiplier = params.get("multiplier")
+        feature_multiplier = params.get("feature_multiplier")
+        num_hidden_layers = params.get("num_hidden_layers")
+        h1_features = params.get("hidden_1_features")
+        dropout = params.get("dropout")
+
+        n_pose_values = 6 * multiplier
+        n_input_features = n_pose_values
+        n_output_features = 1 * multiplier
+
+        first_layer = nn.Linear(n_input_features, h1_features)
+        nn_layers = [first_layer, nn.PReLU(), nn.Dropout(dropout)]
+        prev_features = h1_features
+        num_features = int(h1_features * feature_multiplier)
+
+        for i in range(1, num_hidden_layers):
+            if i == num_hidden_layers - 1:
+                last_layer = nn.Linear(prev_features, n_output_features)
+                nn_layers.append(last_layer)
+            else:
+                num_features = int(prev_features * feature_multiplier)
+                if num_features < n_output_features:
+                    continue
+                next_layer = nn.Linear(prev_features, num_features)
+                nn_layers.append(next_layer)
+                nn_layers.append(nn.PReLU())
+                nn_layers.append(nn.Dropout(dropout))
+
+                prev_features = num_features
+
+        self.sequential = nn.Sequential(*nn_layers)
+
+        self.register_buffer('ipt_stdev',
+                             torch.full((1, n_input_features), torch.inf)
+                             )
+        self.register_buffer('ipt_mean',
+                             torch.full((1, n_input_features), -torch.inf)
+                             )
+        self.register_buffer('opt_stdev',
+                             torch.full((1, n_output_features), torch.inf)
+                             )
+        self.register_buffer('opt_mean',
+                             torch.full((1, n_output_features), -torch.inf)
+                             )
+
+    def forward(self, x):
+        x = (x-self.ipt_mean) / (self.ipt_stdev)
+        x = self.sequential(x)
+        x = (x * self.opt_stdev) + self.opt_mean
+        return x
+
+    def calculate_and_save_normalization_parameters(self, train_dl):
+        dataset = train_dl.dataset
+        ipt_stdev = np.std(dataset.ipt_dataset, axis=0)
+        ipt_mean = np.mean(dataset.ipt_dataset, axis=0)
+
+        opt_stdev = np.std(dataset.opt_dataset, axis=0)
+        opt_mean = np.mean(dataset.opt_dataset, axis=0)
+
+        self.ipt_stdev = torch.from_numpy(ipt_stdev).to(DATATYPE)
+        self.ipt_mean = torch.from_numpy(ipt_mean).to(DATATYPE)
+        self.opt_stdev = torch.from_numpy(opt_stdev).to(DATATYPE)
+        self.opt_mean = torch.from_numpy(opt_mean).to(DATATYPE)
+
+        self.ipt_stdev = torch.max(self.ipt_stdev,
+                                   torch.ones_like(self.ipt_stdev)
+                                   )
+        self.opt_stdev = torch.max(self.opt_stdev,
+                                   torch.ones_like(self.opt_stdev)
+                                   )
+
+        print("Input stdev shape: ", ipt_stdev.shape)
+        print(self.ipt_stdev)
+
+
 class DummyScheduler:
     def __init__(self, optimizer):
         self.optimizer = optimizer
+
     def step(self):
         pass
 
+
 def MAPE(actual, forecast):
-    """
-    Calculate the Mean Absolute Percentage Error (MAPE)
-
-    Parameters:
-    actual (Tensor): The actual values.
-    forecast (Tensor): The forecasted or predicted values.
-
-    Returns:
-    float: The MAPE value.
-    """
     if actual.shape != forecast.shape:
         raise ValueError("The shape of actual and forecast tensors must be the same.")
 
@@ -410,6 +583,7 @@ class EarlyStopper:
 def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
     size = len(dataloader.dataset)
     model = model.to(device)
+    test_loss_mape = 0
     for batch, dat in enumerate(dataloader):
         X = dat[0]
         y = dat[1]
@@ -417,22 +591,26 @@ def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
 
         pred = model(X)
         loss = loss_fn(pred, y)
+        test_loss_mape += MAPE(y, pred).item()
 
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
         optimizer.step()
-        scheduler.step()
 
         if batch % 10 == 0:
             loss, current = loss.item(), batch*len(X)
             # writer.add_scalar('training loss', loss, epoch*len(dataloader) + batch)
             # print(f"Epoch: {epoch}, loss: {loss:>7f} [{current:>5d}/{size:>5d}]")
+    print(f"(Training) Epoch: {epoch}, loss: {test_loss_mape/len(dataloader):>7f} [{current:>5d}/{size:>5d}]")
+    print(pred[0:10])
+    print(y[0:10])
 
 
 def test_loop(dataloader, model, loss_fn):
     size = len(dataloader.dataset)
     test_loss = 0
+    test_loss_mape = 0
     num_batches = 0
 
     with torch.no_grad():
@@ -440,13 +618,16 @@ def test_loop(dataloader, model, loss_fn):
             X, y = X.to(device), y.to(device)
 
             pred = model(X)
-            loss_fn_value = loss_fn(pred, y).item()
             test_loss += loss_fn(pred, y).item()
+            test_loss_mape += MAPE(y, pred).item()
             num_batches += 1
             if num_batches > dataloader.max_batches:
                 break
 
-    return test_loss / num_batches
+    print(pred[0:10])
+    print(y[0:10])
+    print(f"Test Error: \n Avg loss: {test_loss / num_batches:>8f}, Avg MAPE: {test_loss_mape / num_batches:>8f}")
+    return test_loss / num_batches, test_loss_mape / num_batches
 
 
 def infer_loop(model, dataloader, trials, writer=None):
@@ -520,8 +701,15 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
     print(model)
     writer = None
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay = weight_decay)
-    scheduler = DummyScheduler(optimizer)
+    optimizer = torch.optim.AdamW(model.parameters(),
+                                  lr=learning_rate,
+                                  weight_decay=weight_decay
+                                  )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                           'min', factor=0.5,
+                                                           threshold=0.01,
+                                                           patience=5
+                                                           )
     best_test_loss = np.inf
     model_epoch = 0
 
@@ -532,8 +720,10 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
         tl_end = time.time()
         print(f"Training time: {tl_end - tl_start}")
         test_loop_start = time.time()
-        test_loss = test_loop(test_dl, model, loss_fn)
+        test_loss, test_loss_mape = test_loop(test_dl, model, loss_fn)
         test_loop_end = time.time()
+        scheduler.step(test_loss)
+        print(f'Learning rate: {scheduler.get_last_lr()}')
         print(f"Test loop time: {(test_loop_end - test_loop_start)}")
         epoch_time = time.time() - epoch_start
         print(f"Epoch {t+1}\n-------------------------------")
@@ -548,12 +738,14 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
     print(f"Inference time: {(infer_end - infer_start)}")
     return test_loss, infer_time
 
+
 class BenchmarkSpecifier:
     def __init__(self, name):
         self.name = name
 
     def get_nn_class(self):
         return None
+
     def get_target_type(self):
         return None
 
@@ -562,6 +754,10 @@ class BenchmarkSpecifier:
 
     def get_infer_data_from_dl(self, dataloader):
         pass
+
+    @classmethod
+    def get_dataset_generator_class(cls):
+        return BaseDatasetGenerator()
 
     @classmethod
     def get_specifier(cls, name):
@@ -573,6 +769,9 @@ class BenchmarkSpecifier:
             return BinomialOptionsSpecifier()
         elif name == 'bonds':
             return BondsOptionsSpecifier()
+        elif name == 'minibude':
+            data_gen = MiniBUDEOptionsSpecifier.get_dataset_generator_class()
+            return MiniBUDEOptionsSpecifier(data_gen)
 
 
 def get_all_infer_data(dataloader):
@@ -580,6 +779,85 @@ def get_all_infer_data(dataloader):
     # concatenate everything
     item = torch.cat([x[0] for x in data])
     return item
+
+
+class BaseDatasetGenerator:
+    def __init__(self):
+        pass
+
+    def __call_(self):
+        pass
+
+
+class MiniBUDEDatasetGenerator(BaseDatasetGenerator):
+    def __init__(self, datagen_args):
+        super().__init__()
+        self.args = datagen_args
+        self.run_command = None
+        self.db_file = None
+        print("I got the args ", datagen_args)
+
+    def __call__(self):
+        return self.generate_dataset()
+
+    def generate_dataset(self):
+        # create a tmp directory for the build data
+        args = self.args
+        tmp_dir = tempfile.TemporaryDirectory()
+        bm_dir = args['benchmark_location']
+        files = map(lambda x: f'{x}/{bm_dir}', sh.ls(bm_dir))
+        files = glob.glob(f'{bm_dir}/*')
+        [sh.cp(file, tmp_dir.name) for file in files]
+        with sh.pushd(tmp_dir.name):
+            sh.make('-f', 'Makefile.approx', 'clean')
+            sh.make('-f', 'Makefile.approx')
+            cmd = self.create_run_command(tmp_dir.name, args)
+            db_file = tempfile.NamedTemporaryFile()
+            os.environ['HPAC_DB_FILE'] = db_file.name
+            # Tie the lifetime of the db file
+            # to our own
+            self.db_file = db_file
+            cmd(_out=print, _err=print)
+        print(f'Generated dataset at {db_file.name}')
+        return db_file.name
+
+    def create_run_command(self, dir_name, arg_dict):
+        dgen_cmd = arg_dict['dataset_gen_command']
+        dgen_exe = dgen_cmd[0]
+        dgen_args = dgen_cmd[1:]
+        ni = arg_dict['multiplier']
+        for i in range(len(dgen_args)):
+            if dgen_args[i] == '--ni':
+                dgen_args[i+1] = str(ni)
+        exe_path = f'{dir_name}/{dgen_exe}'
+
+        cmd = sh.Command(exe_path)
+        cmd = cmd.bake(*dgen_args)
+        print(cmd)
+        return cmd
+
+
+
+class MiniBUDEOptionsSpecifier(BenchmarkSpecifier):
+    def __init__(self, data_gen):
+        super().__init__('minibude')
+        self.data_gen = data_gen
+
+    def get_nn_class(self):
+        return ConfigurableNumHiddenLayersMiniBUDENeuralNetwork
+
+    def get_target_type(self):
+        return None
+
+    def get_infer_data_from_dl(self, dataloader):
+        return self.get_infer_data_from_ds(dataloader.dataset)
+
+    def get_infer_data_from_ds(self, dataset):
+        return dataset.input_as_torch_tensor()
+
+    @classmethod
+    def get_dataset_generator_class(cls):
+        return MiniBUDEDatasetGenerator
 
 
 class MiniWeatherSpecifier(BenchmarkSpecifier):
@@ -653,6 +931,9 @@ class BondsOptionsSpecifier(BenchmarkSpecifier):
         return dataset.input_as_torch_tensor()
 
 
+def has_datagen_args(config):
+    return 'datagen_args' in config
+
 @click.command()
 @click.option('--name', help='Name of the benchmark')
 @click.option('--config', default='config.yaml',
@@ -671,8 +952,9 @@ def main(name, config, architecture_config, output):
     region_name = data_args['region_name']
 
     with open(architecture_config) as f:
-      arch_params = yaml.load(f, Loader=yaml.FullLoader)
-      arch_params, hyper_params = arch_params['arch_parameters'], arch_params['hyper_parameters']
+        params = yaml.load(f, Loader=yaml.FullLoader)
+        arch_params = params['arch_parameters']
+        hyper_params = params['hyper_parameters']
   
     global DATATYPE
     # TODO: We need to get the region name and the input/output from the configuration file
@@ -682,7 +964,7 @@ def main(name, config, architecture_config, output):
       tei = np.inf
     
     if 'test_split' in data_args:
-      validation_split = data_args['test_split']
+        validation_split = data_args['test_split']
     else:
         validation_split = 0.2
 
@@ -695,11 +977,24 @@ def main(name, config, architecture_config, output):
     BenchSpec = BenchmarkSpecifier.get_specifier(name)
     target_type = BenchSpec.get_target_type()
 
+    if has_datagen_args(config['data_args']):
+        datagen_args = config['data_args']['datagen_args']
+        if 'multiplier' in arch_params:
+            datagen_args['multiplier'] = arch_params['multiplier']
+        data_gen = BenchSpec.get_dataset_generator_class()
+        data_gen = data_gen(datagen_args)
+        file_path = data_gen()
+
     ds = HDF5DataSet(file_path, region_name, 'input', 'output',
                      train_end_index=tei, target_type=target_type,
                      load_entire=data_args['load_entire']
-                    )
-    if 'multiplier' in arch_params:
+                     )
+
+    # awkward
+    # I don't have a good way to distinguish between the case when
+    # we already to the multiple instances because we created the
+    # data set and when we didn't
+    if 'multiplier' in arch_params and not has_datagen_args(config['data_args']):
         ds.set_for_predicting_multiple_instances(arch_params['multiplier'])
     DATATYPE = ds.target_dtype
     batch_size = hyper_params.get("batch_size")
