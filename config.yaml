@@ -314,3 +314,97 @@ bonds:
         type: minimize
       tracking_metrics:
       - average_mse
+minibude:
+  train_script: './train.py'
+  train_args:
+    data_args:
+      region_name: 'BUDEKernel'
+      # Allow us to specialize the data location
+      # in case jobs share the same node
+      # (though we don't run them in parallel)
+      train_test_dataset: '/tmp/bude_data_%s.h5'
+      datagen_args:
+        benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE/'
+        dataset_gen_command:
+          - 'bude'
+          - '--deck'
+          - '/scratch/mzu/zanef2/miniBUDE_data/bm1'
+          - '-i'
+          - '1'
+          - '-n'
+          - '1048576'
+          - '--ni'
+          - '4'
+      load_entire: false
+      test_split: 0.2
+    early_stop_args:
+      patience: 10
+      min_delta_percent: 2
+  bayesian_opt_driver_args:
+    architecture_config:
+      trials: 100
+      # Here we use a multiplier instead of number of features
+      # because the number of input features id a dependent
+      # variable that's challenging to represent here
+      objectives:
+      - name: average_mse
+        type: minimize
+      - name: inference_time
+        type: minimize
+      parameter_space:
+      - name: feature_multiplier
+        type: range
+        bounds: 
+        - 0.0
+        - 1.0
+      - name: multiplier
+        type: fixed
+        value: 1
+      - name: num_hidden_layers
+        type: range
+        bounds:
+        - 2
+        - 12
+      - name: hidden_1_features
+        type: range
+        bounds:
+        - 32
+        - 1024
+      tracking_metrics:
+      - average_mse
+      - inference_time
+    hyperparameter_config:
+      trials: 50
+      parameter_constraints:
+        - "inference_time <= 250"
+      parameter_space:
+      - name: learning_rate
+        type: range
+        bounds:
+        - 0.0001
+        -  0.01
+        log_scale: true
+      - name: epochs
+        type: fixed
+        value: 100
+      - name: batch_size
+        type: range
+        bounds:
+          - 32
+          - 1024
+      - name: dropout
+        type: range
+        bounds:
+        - 0.0
+        - 0.8
+      - name: weight_decay
+        type: range
+        bounds:
+        - 0.0001
+        - 0.1
+        log_scale: true
+      objectives:
+      - name: average_mse
+        type: minimize
+      tracking_metrics:
+      - average_mse
