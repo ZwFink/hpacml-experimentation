@@ -529,6 +529,8 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
         epoch_time = time.time() - epoch_start
         print(f"Epoch {t+1}\n-------------------------------")
         print(f"Test Error: \n Avg loss: {test_loss:>8f}, Time: {epoch_time:>8f}\n")
+        if test_loss < best_test_loss:
+            best_test_loss = test_loss
         if early_stopper.early_stop(test_loss):
             print(f'Early stopping at epoch {t+1} after max patience reached.')
             break
@@ -538,7 +540,7 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
     infer_end = time.time()
     print(f"Inference time: {(infer_end - infer_start)}")
     # YAML doesn't know how to handle tuples, so we return a list
-    return test_loss, [infer_time, infer_sem]
+    return best_test_loss, [infer_time, infer_sem]
 
 class BenchmarkSpecifier:
     def __init__(self, name):
