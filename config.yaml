@@ -121,7 +121,7 @@ miniweather:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 20
+      trials: 15
       parameter_constraints:
         - "inference_time <= 1000"
       parameter_space:
@@ -138,7 +138,7 @@ miniweather:
         - 0.5
       - name: epochs
         type: fixed
-        value: 20
+        value: 15
       - name: batch_size
         type: fixed
         value: 32
@@ -199,7 +199,7 @@ binomial_options:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 30
+      trials: 20
       parameter_constraints:
         - "inference_time <= 4"
       parameter_space:
@@ -211,7 +211,7 @@ binomial_options:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 50
+        value: 30
       - name: batch_size
         type: fixed
         value: 32
@@ -282,7 +282,7 @@ bonds:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 30
+      trials: 20
       parameter_constraints:
         - "inference_time <= 8"
       parameter_space:
@@ -294,7 +294,7 @@ bonds:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 50
+        value: 30
       - name: batch_size
         type: fixed
         value: 32
