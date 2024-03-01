@@ -36,16 +36,20 @@ from parsl.app.app import join_app
 from parsl.app.app import bash_app
 from parsl.config import Config
 from parsl.providers import SlurmProvider
+from parsl.providers import LocalProvider
 from parsl.launchers import SrunLauncher
+from parsl.data_provider.files import File as ParslFile
 from parsl.executors import HighThroughputExecutor
 from parsl import set_stream_logger
+from util import BOParameterWrapper
 
+# set_stream_logger()
 TRIALS_ARCH = 2
 TRIALS_HYPERPARMS = 3
 
-class TrialFailureException(Exception):
-    pass
 
+def get_temp_file_located_here():
+    return tempfile.NamedTemporaryFile(mode='w', delete=False, dir=os.getcwd())
 
 class OutputManager:
     def __init__(self, directory_prefix, benchmark_name, append_benchmark_name=True):
@@ -75,17 +79,6 @@ class OutputManager:
         # print trail results index name
         print(trial_results_df.index.name)
         trial_results_df.to_csv(f"{str(self.output_dir_path)}/{name}.csv", index=True)
-
-
-@dataclass
-class BOParameterWrapper:
-    parameter_space: list
-    parameter_constraints: list
-    objectives: dict
-    tracking_metric_names: list
-
-    def get_parameter_names(self):
-        return [p['name'] for p in self.parameter_space]
 
 
 def get_params(config):
@@ -127,112 +120,32 @@ class EvalArgs:
     hyper_parameters: dict
 
 
-@python_app
-def evaluate_hyperparameters(config_filename, arch_parameters,
-                             hyper_parameters, config_global,
-                             train_script, benchmark_name,
-                             trial_index):
-    import tempfile
-    import sh
+@bash_app
+def architecture_driver(benchmark_name, parsl_rundir_name, inputs=(), outputs=()):
     import yaml
-    import sys
+    import sh
+    import time
+    print(f'Architecture driver started at {time.time()}')
 
-    input_config_tmp = tempfile.NamedTemporaryFile(mode='w', prefix='/tmp/', delete=False)
-    output_config_tmp = tempfile.NamedTemporaryFile(mode='w', prefix='/tmp/', delete=False)
-    print("Tmp file name is:", input_config_tmp.name)
-    
-    with open(input_config_tmp.name, 'w') as f:
-        yaml.dump({'arch_parameters': arch_parameters, 'hyper_parameters': hyper_parameters}, f)
+    ipt_file = inputs[1]
+    with open(ipt_file, 'r') as f:
+        parameters = yaml.safe_load(f)
 
-    command = sh.Command('python3').bake(train_script, 
-    '--name', benchmark_name,
-    '--config', config_filename, 
-    '--architecture_config', input_config_tmp.name, '--output', output_config_tmp.name
-    )
-    print(str(command))
-    
-    try:
-        command(_out=sys.stdout, _err=sys.stderr)
-    except sh.ErrorReturnCode as e:
-        print("Error running command")
-        print(e)
-        return {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}
+    input_config, input_params = inputs
 
-    with open(output_config_tmp.name, 'r') as f:
-        results = yaml.safe_load(f)
-
-    error, inference_time = results['average_mse'], results['inference_time']
-    return trial_index, {"average_mse": (error, 0), 'inference_time': (inference_time, 0)}
-
-
-def submit_parallel_trial(parameters_hyperparams, trial_index, eval_args):
-    # This causes issues when submitting one job from another, see:
-    # https://bugs.schedmd.com/show_bug.cgi?id=14298
-    try:
-        os.unsetenv('SLURM_CPU_BIND')
-        os.unsetenv('SLURM_CPU_BIND_LIST')
-        os.unsetenv('SLURM_CPUS_ON_NODE')
-        os.unsetenv('SLURM_CPUS_PER_TASK')
-        os.unsetenv('SLURM_CPU_BIND_TYPE')
-    except KeyError:
-        pass
-    results = evaluate_hyperparameters(
-        config_filename=eval_args.config_filename,
-        arch_parameters=eval_args.arch_parameters,
-        hyper_parameters=parameters_hyperparams,
-        config_global=eval_args.config_global,
-        train_script=eval_args.config_global['train_script'],
-        benchmark_name=eval_args.benchmark_name,
-        trial_index=trial_index
-    )
-    return results
-
-
-def evaluate_architecture(eval_args):
-    ax_client_hyperparams = eval_args.ax_client_hypers
-    max_parallelism = ax_client_hyperparams.get_max_parallelism()[-1][1]
-    print("Max parallelism:", ax_client_hyperparams.get_max_parallelism())
-
-    for i in range(0, TRIALS_HYPERPARMS, max_parallelism):
-        job_futures = list()
-        print(f"Running trials {i} to {i + max_parallelism}")
-        tst = time.time()
-        for j in range(max_parallelism):
-            if not (i + j < TRIALS_HYPERPARMS):
-                continue
-            params, trial_index = ax_client_hyperparams.get_next_trial()
-            job_futures.append(submit_parallel_trial(params,
-                                                     trial_index,
-                                                     eval_args))
-
-        results = [f.result() for f in job_futures]
-        tend = time.time()
-        print(f'Finished running trials {i} to {i + max_parallelism} in {tend - tst} seconds')
-        for res in results:
-            trial_index, result = res
-            process_result(trial_index, result, ax_client_hyperparams)
-
-    best_parameters = ax_client_hyperparams.get_best_parameters()
-    print(best_parameters)
-    error = best_parameters[1][0]['average_mse']
-    inference_time = best_parameters[1][0]['inference_time']
-    best_hypers = best_parameters[0]
-    print("best hypers:", best_hypers)
-    result_data = {"average_mse": (error, 0), 'inference_time': (inference_time, 0)}
-    data = {"average_mse": (error, 0), 'inference_time': (inference_time, 0), 'learning_rate': (best_hypers['learning_rate'], 0),
-    'weight_decay': (best_hypers['weight_decay'], 0), 'epochs': (best_hypers['epochs'], 0), 'batch_size': (best_hypers['batch_size'], 0),
-    'dropout': (best_hypers['dropout'], 0)}
-    return result_data, data, eval_args.arch_parameters
-
-
-def process_result(trial_index, result, ax_client_hyperparams):
-    if result['average_mse'][0] == 1e9:
-        ax_client_hyperparams.log_trial_failure(trial_index)
-        raise TrialFailureException()
-    else:
-        ax_client_hyperparams.complete_trial(trial_index=trial_index,
-                                             raw_data=result
-                                            )
+    cmd = sh.Command('python3')
+    cmd = cmd.bake('bo_hyperparameter.py')
+    cmd = cmd.bake('--config', input_config,
+                   '--trial_index', parameters['trial_index'],
+                   '--architecture', input_params,
+                   '--output', outputs[0],
+                   '--parsl_rundir', parsl_rundir_name,
+                   '--benchmark', benchmark_name
+                   )
+    f = open('debug_file', 'w')
+    print("Running command: ", str(cmd), file=f)
+    f.close()
+    return str(cmd)
 
 
 @click.command()
@@ -243,134 +156,176 @@ def process_result(trial_index, result, ax_client_hyperparams):
 @click.option('--output', default=None, help='Path to the output directory. Mutually exclusive with output_base.', required=False)
 @click.option('--parsl_rundir', default='./rundir', help='Path to the parsl run directory', required=False)
 def main(config, benchmark, output_base, restart, output, parsl_rundir):
+    slurm_provider = SlurmProvider(
+                    partition="cpu",
+                    account="mzu-delta-cpu",
+                    scheduler_options="#SBATCH --cpus-per-task=5 --nodes=1 --ntasks-per-node=1",
+                    worker_init='source ~/activate.sh',
+                    nodes_per_block=1,
+                    max_blocks=9,
+                    init_blocks=1,
+                    exclusive=False,
+                    mem_per_node=10,
+                    walltime="00:20:00",
+                    cmd_timeout=500,
+                    launcher=SrunLauncher()
+                )
 
-  parsl_config = Config(
-      retries=2,
-      run_dir = parsl_rundir,
-      executors=[
-          HighThroughputExecutor(
-              cores_per_worker=15,
-              worker_debug=True,
-              available_accelerators=1,
-              label="GPU_Executor",
-              provider=SlurmProvider(
-                  partition="gpuA100x4",
-                  account="mzu-delta-gpu",
-                  scheduler_options="#SBATCH --gpus-per-task=1 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
-                  worker_init='source ~/activate.sh',
-                  nodes_per_block=1,
-                  max_blocks=9,
-                  init_blocks=1,
-                  exclusive=False,
-                  mem_per_node=35,
-                  walltime="9:04:00",
-                  cmd_timeout=500,
-                  launcher=SrunLauncher()
-              )
-          )
-      ]
-  )
+    local_provider = LocalProvider(
+        init_blocks=1,
+        max_blocks=10,
+        parallelism=1
+    )
 
-  parsl.load(parsl_config)
-  # Give 'output' the highest precedence for creating the output directory
-  if output:
-    om = OutputManager(output, benchmark, append_benchmark_name=False)
-  # if we don't have output, but we do have restart, then choose to continue from the restart directory
-  elif restart:
-    om = OutputManager(restart, benchmark, append_benchmark_name=False)
-  # otherwise, create the output directory from the output_base
-  elif not output and not restart:
-    om = OutputManager(f'{output_base}/{OutputManager.get_datetime_prefix()}', benchmark)
-  
-  config_filename = config
-  with open(config_filename, 'r') as file:
-      config = yaml.safe_load(file)
-      config_global = config.copy()[benchmark]
-      config = config[benchmark]['bayesian_opt_driver_args']
-  
-  arch_search_params = get_params(config['architecture_config'])
-  hyper_search_params = get_params(config['hyperparameter_config'])
+    parsl_config = Config(
+        retries=2,
+        run_dir=parsl_rundir,
+        executors=[
+            HighThroughputExecutor(
+                cores_per_worker=1,
+                worker_debug=False,
+                label="CPU_Executor",
+                provider=local_provider
+            )
+        ]
+    )
 
-  output_columns = ['trial']
-  output_columns += arch_search_params.get_parameter_names() 
-  output_columns += hyper_search_params.get_parameter_names()
-  output_columns += arch_search_params.tracking_metric_names
+    parsl.load(parsl_config)
+    # Give 'output' the highest precedence for creating the output directory
+    if output:
+      om = OutputManager(output, benchmark, append_benchmark_name=False)
+    # if we don't have output, but we do have restart, then choose to continue from the restart directory
+    elif restart:
+      om = OutputManager(restart, benchmark, append_benchmark_name=False)
+    # otherwise, create the output directory from the output_base
+    elif not output and not restart:
+      om = OutputManager(f'{output_base}/{OutputManager.get_datetime_prefix()}', benchmark)
+  
+    config_filename = config
+    with open(config_filename, 'r') as file:
+        config = yaml.safe_load(file)
+        config_global = config.copy()[benchmark]
+        config = config[benchmark]['bayesian_opt_driver_args']
+  
+    arch_search_params = get_params(config['architecture_config'])
+    hyper_search_params = get_params(config['hyperparameter_config'])
 
-  global TRIALS_ARCH
-  global TRIALS_HYPERPARMS
-  TRIALS_ARCH = config['architecture_config']['trials']
-  TRIALS_HYPERPARMS = config['hyperparameter_config']['trials']
-  print("Trials for architecture:", TRIALS_ARCH)
-  print("Trials for hyperparameters:", TRIALS_HYPERPARMS)
-  
-  ax_client_hyperparams = AxClient()
-  ax_client_architecture = AxClient()
+    output_columns = ['trial']
+    output_columns += arch_search_params.get_parameter_names() 
+    output_columns += hyper_search_params.get_parameter_names()
+    output_columns += arch_search_params.tracking_metric_names
 
-  start_round = 0
+    global TRIALS_ARCH
+    global TRIALS_HYPERPARMS
+    TRIALS_ARCH = config['architecture_config']['trials']
+    TRIALS_HYPERPARMS = config['hyperparameter_config']['trials']
+    print("Trials for architecture:", TRIALS_ARCH)
+    print("Trials for hyperparameters:", TRIALS_HYPERPARMS)
   
-  if restart is None:
-    output_df = pd.DataFrame(columns=output_columns)
-    output_df.set_index('trial', inplace=True)
-    exp_arch = ax_client_architecture.create_experiment(name="Architecture_search",
-    parameters=arch_search_params.parameter_space, objectives=arch_search_params.objectives,
-    tracking_metric_names = arch_search_params.tracking_metric_names,
-    parameter_constraints = arch_search_params.parameter_constraints)
-  else:
-    restart_file = f'{restart}/ax_client.json'
-    step_file = f'{restart}/ax_client_optimization_step.json'
-    ax_client_architecture = AxClient.load_from_json_file(restart_file)
-    output_df = pd.read_csv(f'{restart}/trial_results.csv', index_col='trial')
-    with open(step_file, 'r') as step_f:
-      step = json.load(step_f)
-      start_round = step['optimization_step'] + 1
-      print(f'Restarting from step {start_round}')
+    ax_client_architecture = AxClient()
+
+    start_round = 0
   
+    if restart is None:
+      output_df = pd.DataFrame(columns=output_columns)
+      output_df.set_index('trial', inplace=True)
+      exp_arch = ax_client_architecture.create_experiment(name="Architecture_search",
+      parameters=arch_search_params.parameter_space, objectives=arch_search_params.objectives,
+      tracking_metric_names = arch_search_params.tracking_metric_names,
+      parameter_constraints = arch_search_params.parameter_constraints)
+    else:
+      restart_file = f'{restart}/ax_client.json'
+      step_file = f'{restart}/ax_client_optimization_step.json'
+      ax_client_architecture = AxClient.load_from_json_file(restart_file)
+      output_df = pd.read_csv(f'{restart}/trial_results.csv', index_col='trial')
+      with open(step_file, 'r') as step_f:
+        step = json.load(step_f)
+        start_round = step['optimization_step'] + 1
+        print(f'Restarting from step {start_round}')
   
-  eval_args = EvalArgs(benchmark, config_global, config_filename, None, ax_client_hyperparams, None)
+
+    max_parallelism = ax_client_architecture.get_max_parallelism()[-1][1]
+    for i in range(start_round, TRIALS_ARCH, max_parallelism):
+        output_futures = list()
+        files_to_cleanup = list()
+        tst = time.time()
+        for j in range(max_parallelism):
+            if not (i + j < TRIALS_ARCH):
+                continue
+
+            parameters, trial_index = ax_client_architecture.get_next_trial()
+
+            _input_file = get_temp_file_located_here().name
+            _output_file = get_temp_file_located_here().name
+
+            files_to_cleanup.append(_input_file)
+            files_to_cleanup.append(_output_file)
+            
+            input_file = ParslFile(_input_file)
+            output_file = ParslFile(_output_file)
+            input_file_config = ParslFile(config_filename)
+
+            with open(input_file, 'w') as f:
+                params = dict()
+                params['arch_params'] = parameters
+                params['trial_index'] = trial_index
+                yaml.dump(params, f)
   
-  for i in range(start_round, TRIALS_ARCH):
-      parameters, trial_index = ax_client_architecture.get_next_trial()
-      eval_args.arch_parameters = parameters
+            rundir_arch = f'{parsl_rundir}/architecture_{i + j}'
+            n_success = 0
   
-      ax_client_hyperparams = AxClient()
-      eval_args.ax_client_hypers = ax_client_hyperparams
-      n_success = 0
+            output = architecture_driver(benchmark,
+                                         rundir_arch,
+                                         inputs=[input_file_config, input_file],
+                                         outputs=[output_file]
+                                         )
+            output_futures.append(output)
+
+        results = output_futures
+        for j, res in enumerate(results):
+            of = res.outputs[0].result()
+            with open(of, 'r') as f:
+                results = yaml.safe_load(f)
+                trial_index = results['trial_index']
+                if results['success']:
+                    n_success += 1
+                    objective_results = results['results']['objectives']
+                    print(f"Trial {trial_index} succeeded with parameters {objective_results}")
+                    # Change the list values in objective_results to tuple
+                    for k in objective_results:
+                        if isinstance(objective_results[k], list):
+                            objective_results[k] = tuple(objective_results[k])
+                    ax_client_architecture.complete_trial(trial_index=trial_index,
+                                                          raw_data=objective_results)
+                else:
+                    print(f"Trial {results['trial_index']} failed")
+                    ax_client_architecture.log_trial_failure(trial_index)
+            
+            output_data = get_trial_output_data(output_columns, results['results']['hyperparameters'])
+            output_data['trial'] = i+j
+            print("output_df", output_df)
+            print("output data", output_data)
+            new_row_df = pd.DataFrame([output_data]).set_index('trial')
+            output_df = pd.concat([output_df, new_row_df], ignore_index=False)
+            # set the name of the index column to trial
+            output_df.index.name = 'trial'
   
-      hyper_arch = ax_client_hyperparams.create_experiment(name="PF_hyperparameters",
-          parameters=hyper_search_params.parameter_space, objectives=hyper_search_params.objectives,
-          tracking_metric_names=hyper_search_params.tracking_metric_names,
-          outcome_constraints=hyper_search_params.parameter_constraints)
-      try:
-        data_objectives, data_hyper, data_arch = evaluate_architecture(eval_args)
-        ax_client_architecture.complete_trial(trial_index=trial_index,
-                                              raw_data=data_objectives
-                                              )
-        n_success += 1
-      except TrialFailureException:
-        data_hyper, data_arch = {}, eval_args.arch_parameters
-        ax_client_architecture.log_trial_failure(trial_index)
-      data_hyper.update(data_arch)
-      print(data_hyper)
-      output_data = get_trial_output_data(output_columns, data_hyper)
-      output_data['trial'] = i  # Ensure this matches how you're tracking trial indices
-      print("output_df", output_df)
-      print("output data", output_data)
-      new_row_df = pd.DataFrame([output_data]).set_index('trial')
-      output_df = pd.concat([output_df, new_row_df], ignore_index=False)
-      # set the name of the index column to trial
-      output_df.index.name = 'trial'
+            print(output_df)
+
+        tend = time.time()
+        print(f'Completed trials {i} to {i + max_parallelism - 1} in {tend - tst} seconds')
+        for file in files_to_cleanup:
+            os.remove(file)
   
-      print(output_df)
-  
-      # print pareto optimal parameters 
-      if n_success > 0:
-        best_parameters = ax_client_architecture.get_pareto_optimal_parameters()
-      else:
-        best_parameters = {}
-      print("pareto parameters:", best_parameters)
-      om.save_optimization_state(i, ax_client_architecture)
-      om.save_trial_results_df(output_df)
-      om.save_pareto_parameters(json.dumps(best_parameters))
+        # print pareto optimal parameters 
+        if n_success > 0:
+          best_parameters = ax_client_architecture.get_pareto_optimal_parameters()
+        else:
+          best_parameters = {}
+        print("pareto parameters:", best_parameters)
+        om.save_optimization_state(i, ax_client_architecture)
+        om.save_trial_results_df(output_df)
+        om.save_pareto_parameters(json.dumps(best_parameters))
 
 if __name__ == "__main__":
     main()
