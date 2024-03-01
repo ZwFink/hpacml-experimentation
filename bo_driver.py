@@ -47,34 +47,6 @@ class TrialFailureException(Exception):
     pass
 
 
-parsl_config = Config(
-    retries=2,
-    executors=[
-        HighThroughputExecutor(
-            cores_per_worker=15,
-            worker_debug=True,
-            available_accelerators=1,
-            label="GPU_Executor",
-            provider=SlurmProvider(
-                partition="gpuA100x4",
-                account="mzu-delta-gpu",
-                scheduler_options="#SBATCH --gpus-per-task=1 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
-                worker_init='source ~/activate.sh',
-                nodes_per_block=1,
-                max_blocks=9,
-                init_blocks=1,
-                exclusive=False,
-                mem_per_node=35,
-                walltime="9:4:00",
-                cmd_timeout=500,
-                launcher=SrunLauncher()
-            )
-        )
-    ]
-)
-
-parsl.load(parsl_config)
-
 class OutputManager:
     def __init__(self, directory_prefix, benchmark_name, append_benchmark_name=True):
         self.benchmark_name = benchmark_name
@@ -196,7 +168,14 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
 def submit_parallel_trial(parameters_hyperparams, trial_index, eval_args):
     # This causes issues when submitting one job from another, see:
     # https://bugs.schedmd.com/show_bug.cgi?id=14298
-    del os.environ['SLURM_CPU_BIND']
+    try:
+        os.unsetenv('SLURM_CPU_BIND')
+        os.unsetenv('SLURM_CPU_BIND_LIST')
+        os.unsetenv('SLURM_CPUS_ON_NODE')
+        os.unsetenv('SLURM_CPUS_PER_TASK')
+        os.unsetenv('SLURM_CPU_BIND_TYPE')
+    except KeyError:
+        pass
     results = evaluate_hyperparameters(
         config_filename=eval_args.config_filename,
         arch_parameters=eval_args.arch_parameters,
@@ -262,7 +241,37 @@ def process_result(trial_index, result, ax_client_hyperparams):
 @click.option('--output_base', default='./', help='Path to the base output directory', required=False)
 @click.option('--restart', default=None, help='Restart the optimization from the data in this directory', required=False)
 @click.option('--output', default=None, help='Path to the output directory. Mutually exclusive with output_base.', required=False)
-def main(config, benchmark, output_base, restart, output):
+@click.option('--parsl_rundir', default='./rundir', help='Path to the parsl run directory', required=False)
+def main(config, benchmark, output_base, restart, output, parsl_rundir):
+
+  parsl_config = Config(
+      retries=2,
+      run_dir = parsl_rundir,
+      executors=[
+          HighThroughputExecutor(
+              cores_per_worker=15,
+              worker_debug=True,
+              available_accelerators=1,
+              label="GPU_Executor",
+              provider=SlurmProvider(
+                  partition="gpuA100x4",
+                  account="mzu-delta-gpu",
+                  scheduler_options="#SBATCH --gpus-per-task=1 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
+                  worker_init='source ~/activate.sh',
+                  nodes_per_block=1,
+                  max_blocks=9,
+                  init_blocks=1,
+                  exclusive=False,
+                  mem_per_node=35,
+                  walltime="9:04:00",
+                  cmd_timeout=500,
+                  launcher=SrunLauncher()
+              )
+          )
+      ]
+  )
+
+  parsl.load(parsl_config)
   # Give 'output' the highest precedence for creating the output directory
   if output:
     om = OutputManager(output, benchmark, append_benchmark_name=False)
