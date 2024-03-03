@@ -20,6 +20,7 @@ particlefilter:
         type: minimize
       - name: inference_time
         type: minimize
+        threshold: 3
       parameter_space:
       - name: conv_kernel_size
         type: range
@@ -47,8 +48,6 @@ particlefilter:
   
     hyperparameter_config:
       trials: 30
-      parameter_constraints:
-        - "inference_time <= 3.0"
       parameter_space:
       - name: learning_rate
         type: range
@@ -58,7 +57,7 @@ particlefilter:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 50
+        value: 500
       - name: batch_size
         type: fixed
         value: 32
@@ -95,6 +94,7 @@ miniweather:
         type: minimize
       - name: inference_time
         type: minimize
+        threshold: 10
       parameter_space:
       - name: conv1_stride
         type: fixed
@@ -121,7 +121,7 @@ miniweather:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 30
+      trials: 50
       parameter_constraints:
         - "inference_time <= 10"
       parameter_space:
@@ -138,7 +138,7 @@ miniweather:
         - 0.5
       - name: epochs
         type: fixed
-        value: 20
+        value: 100
       - name: batch_size
         type: fixed
         value: 32
@@ -168,7 +168,7 @@ binomial_options:
       max_test_batches: 8000
     early_stop_args:
       patience: 5
-      min_delta_percent: 10
+      min_delta_percent: 1
   bayesian_opt_driver_args:
     architecture_config:
       trials: 100
@@ -199,7 +199,7 @@ binomial_options:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 20
+      trials: 40
       parameter_constraints:
         - "inference_time <= 4"
       parameter_space:
@@ -211,7 +211,7 @@ binomial_options:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 30
+        value: 100
       - name: batch_size
         type: fixed
         value: 32
@@ -250,8 +250,8 @@ bonds:
       # inference tim
       max_test_batches: 8000
     early_stop_args:
-      patience: 5
-      min_delta_percent: 10
+      patience: 10
+      min_delta_percent: 1
   bayesian_opt_driver_args:
     architecture_config:
       trials: 100
@@ -282,7 +282,7 @@ bonds:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 20
+      trials: 50
       parameter_constraints:
         - "inference_time <= 8"
       parameter_space:
@@ -302,7 +302,7 @@ bonds:
         type: range
         bounds:
         - 0.0
-        - 0.1
+        - 0.5
       - name: weight_decay
         type: range
         bounds:
