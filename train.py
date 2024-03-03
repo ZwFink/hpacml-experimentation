@@ -697,9 +697,7 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
                                   weight_decay=weight_decay
                                   )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                           'min', factor=0.5,
-                                                           threshold=0.01,
-                                                           patience=5
+                                                           'min'
                                                            )
     best_test_loss = np.inf
     model_epoch = 0
@@ -849,9 +847,7 @@ class MiniBUDEOptionsSpecifier(BenchmarkSpecifier):
 
     def get_infer_data_from_ds(self, dataset):
         ds_torch = dataset.input_as_torch_tensor()
-        shape = ds_torch.shape
-        first_half = ds_torch[0:shape[0]//2]
-        return first_half
+        return ds_torch
 
     @classmethod
     def get_dataset_generator_class(cls):
