@@ -42,7 +42,7 @@ from parsl.executors import HighThroughputExecutor
 from parsl import set_stream_logger
 from util import BOParameterWrapper, EvalArgs
 
-TRIALS_HYPERPARMS = 3
+TRIALS_HYPERPARMS = 40
 
 class TrialFailureException(Exception):
     pass
@@ -219,7 +219,7 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir):
         parallelism=1,
         exclusive=False,
         mem_per_node=70,
-        walltime="9:45:00",
+        walltime="2:45:00",
         cmd_timeout=500,
         launcher=SingleNodeLauncher()
     )
