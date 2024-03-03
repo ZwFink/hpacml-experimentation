@@ -92,11 +92,20 @@ def get_params(config):
 
     objectives_l = dict()
     for c in objectives:
+        try:
+            threshold = c['threshold']
+        except KeyError:
+            threshold = None
         if c['type'] == 'minimize':
-            objectives_l[c['name']] = ObjectiveProperties(minimize=True)
+            objectives_l[c['name']] = ObjectiveProperties(minimize=True,
+                                                          threshold=threshold
+                                                          )
         else:
-            objectives_l[c['name']] = ObjectiveProperties(minimize=False)
-    return BOParameterWrapper(parm_space, constraints, objectives_l, tracking_metric_names)
+            objectives_l[c['name']] = ObjectiveProperties(minimize=False,
+                                                          threshold=threshold)
+    return BOParameterWrapper(parm_space, constraints,
+                              objectives_l, 
+                              tracking_metric_names)
 
 
 def get_trial_output_data(output_columns, data_dict):
@@ -232,7 +241,8 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
       exp_arch = ax_client_architecture.create_experiment(name="Architecture_search",
       parameters=arch_search_params.parameter_space, objectives=arch_search_params.objectives,
       tracking_metric_names = arch_search_params.tracking_metric_names,
-      parameter_constraints = arch_search_params.parameter_constraints)
+      parameter_constraints = arch_search_params.parameter_constraints
+      )
     else:
       restart_file = f'{restart}/ax_client.json'
       step_file = f'{restart}/ax_client_optimization_step.json'
