@@ -853,7 +853,9 @@ class MiniBUDEOptionsSpecifier(BenchmarkSpecifier):
 
     def get_infer_data_from_ds(self, dataset):
         ds_torch = dataset.input_as_torch_tensor()
-        return ds_torch
+        shape = ds_torch.shape
+        first_half = ds_torch[0:shape[0]//2]
+        return first_half
 
     def get_error_reporting_fn(self):
         return MAPE
