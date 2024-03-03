@@ -37,7 +37,7 @@ from parsl.app.app import bash_app
 from parsl.config import Config
 from parsl.providers import SlurmProvider
 from parsl.providers import LocalProvider
-from parsl.launchers import SrunLauncher
+from parsl.launchers import SingleNodeLauncher
 from parsl.executors import HighThroughputExecutor
 from parsl import set_stream_logger
 from util import BOParameterWrapper, EvalArgs
@@ -207,20 +207,21 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir):
         max_blocks=1,
         parallelism=1
     )
+
     slurm_provider = SlurmProvider(
         partition="gpuA100x4",
         account="mzu-delta-gpu",
-        scheduler_options="#SBATCH --gpus-per-task=1 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
+        scheduler_options="#SBATCH --gpus-per-task=4 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
         worker_init='source ~/activate.sh',
         nodes_per_block=1,
-        max_blocks=9,
+        max_blocks=5,
         init_blocks=1,
         parallelism=1,
         exclusive=False,
-        mem_per_node=35,
-        walltime="9:10:00",
+        mem_per_node=150,
+        walltime="9:45:00",
         cmd_timeout=500,
-        launcher=SrunLauncher()
+        launcher=SingleNodeLauncher()
     )
 
     parsl_config = Config(
@@ -229,9 +230,11 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir):
         executors=[
             HighThroughputExecutor(
                 cores_per_worker=15,
+                available_accelerators=4,
+                cpu_affinity='block',
+                mem_per_worker=35,
                 worker_debug=False,
-                available_accelerators=1,
-                label="GPU_Executor",
+                label="BO_Search_Exec",
                 provider=slurm_provider
             )
         ]
