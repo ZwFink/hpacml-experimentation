@@ -1,0 +1,16 @@
+---
+particlefilter:
+  train_args:
+    pareto_frontier_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-02-25_particlefilter/pareto_parameters.json'
+    all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-02-25_particlefilter/trial_results.csv'
+    pareto_only: false
+    epochs: 500
+    early_stop_args:
+      patience: 100
+      min_delta_percent: 0.01
+  data_args:
+    region_name: 'particlefilter'
+    load_entire: false
+    train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/particlefilter_128x128_13000.h5'
+    output_models_directory: 'particlefilter_output_models'
+
