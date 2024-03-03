@@ -472,7 +472,7 @@ class ConfigurableNumHiddenLayersMiniBUDENeuralNetwork(nn.Module):
         dropout = params.get("dropout")
 
         n_pose_values = 6 * multiplier
-        n_input_features = n_pose_values
+        n_input_features = n_pose_values + 21552
         n_output_features = 1 * multiplier
 
         first_layer = nn.Linear(n_input_features, h1_features)
