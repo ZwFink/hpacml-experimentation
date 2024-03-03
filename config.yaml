@@ -328,18 +328,18 @@ minibude:
         dataset_gen_command:
           - 'bude'
           - '--deck'
-          - '/scratch/mzu/zanef2/miniBUDE_data/bm1'
+          - '/scratch/mzu/zanef2/miniBUDE_data/bm2'
           - '-i'
           - '1'
           - '-n'
-          - '4194304'
+          - '2097152'
           - '--ni'
           - '4'
       load_entire: false
       test_split: 0.2
     early_stop_args:
       patience: 10
-      min_delta_percent: 2
+      min_delta_percent: 1
   bayesian_opt_driver_args:
     architecture_config:
       trials: 100
@@ -352,17 +352,17 @@ minibude:
         threshold: 10
       - name: inference_time
         type: minimize
-        threshold: 250
+        threshold: 5000
       parameter_space:
       - name: feature_multiplier
         type: range
         bounds: 
-        - 0.0
+        - 0.1
         - 1.0
       - name: multiplier
         type: range
         bounds:
-        - 1
+        - 32
         - 256
       - name: num_hidden_layers
         type: range
@@ -370,10 +370,9 @@ minibude:
         - 2
         - 12
       - name: hidden_1_features
-        type: range
-        bounds:
-        - 8
-        - 2048
+        type: fixed
+        value:
+        - 22320
       tracking_metrics:
       - average_mse
       - inference_time
