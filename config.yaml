@@ -371,8 +371,7 @@ minibude:
         - 12
       - name: hidden_1_features
         type: fixed
-        value:
-        - 22320
+        value: 22320
       tracking_metrics:
       - average_mse
       - inference_time
