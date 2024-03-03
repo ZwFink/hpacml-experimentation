@@ -608,7 +608,7 @@ def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
     print(y[0:10])
 
 
-def test_loop(dataloader, model, loss_fn):
+def test_loop(dataloader, model, loss_fn, user_loss_fn):
     size = len(dataloader.dataset)
     test_loss = 0
     test_loss_mape = 0
@@ -620,7 +620,7 @@ def test_loop(dataloader, model, loss_fn):
 
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
-            test_loss_mape += MAPE(y, pred).item()
+            test_loss_mape += user_loss_fn(y, pred).item()
             num_batches += 1
             if num_batches > dataloader.max_batches:
                 break
@@ -677,7 +677,7 @@ def infer_loop(model, dataloader, trials, writer=None):
       writer.add_scalar('inference time', average_time*1000, 0)
     return mean, sem
 
-def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_params, hyper_params):
+def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper, arch_params, hyper_params):
     learning_rate = hyper_params.get("learning_rate")
     epochs = hyper_params.get("epochs")
     batch_size = hyper_params.get("batch_size")
@@ -700,6 +700,7 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
                                                            'min'
                                                            )
     best_test_loss = np.inf
+    best_user_test_loss = np.inf
     model_epoch = 0
 
     for t in range(model_epoch, epochs):
@@ -709,8 +710,9 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
         tl_end = time.time()
         print(f"Training time: {tl_end - tl_start}")
         test_loop_start = time.time()
-        test_loss, test_loss_mape = test_loop(test_dl, model, loss_fn)
-        test_loss = test_loss_mape
+        test_loss, user_test_loss = test_loop(test_dl, model,
+                                              loss_fn, user_loss
+                                              )
         test_loop_end = time.time()
         scheduler.step(test_loss)
         print(f'Learning rate: {scheduler.get_last_lr()}')
@@ -720,6 +722,7 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
         print(f"Test Error: \n Avg loss: {test_loss:>8f}, Time: {epoch_time:>8f}\n")
         if test_loss < best_test_loss:
             best_test_loss = test_loss
+            best_user_test_loss = user_test_loss
         if early_stopper.early_stop(test_loss):
             print(f'Early stopping at epoch {t+1} after max patience reached.')
             break
@@ -729,7 +732,7 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
     infer_end = time.time()
     print(f"Inference time: {(infer_end - infer_start)}")
     # YAML doesn't know how to handle tuples, so we return a list
-    return best_test_loss, [infer_time, infer_sem]
+    return best_user_test_loss, [infer_time, infer_sem]
 
 
 class BenchmarkSpecifier:
@@ -747,6 +750,9 @@ class BenchmarkSpecifier:
 
     def get_infer_data_from_dl(self, dataloader):
         pass
+
+    def get_error_reporting_fn(self):
+        return nn.MSELoss()
 
     @classmethod
     def get_dataset_generator_class(cls):
@@ -848,6 +854,9 @@ class MiniBUDEOptionsSpecifier(BenchmarkSpecifier):
     def get_infer_data_from_ds(self, dataset):
         ds_torch = dataset.input_as_torch_tensor()
         return ds_torch
+
+    def get_error_reporting_fn(self):
+        return MAPE
 
     @classmethod
     def get_dataset_generator_class(cls):
@@ -1014,8 +1023,10 @@ def main(name, config, architecture_config, output):
     early_stop_parms = config['early_stop_args']
     early_stopper = EarlyStopper(early_stop_parms['patience'], 
                                  early_stop_parms['min_delta_percent'])
-    test_loss, runtime = train_test_infer_loop(nn, train_dl, test_dl, 
-                                               early_stopper, arch_params, 
+    user_loss = BenchSpec.get_error_reporting_fn()
+    test_loss, runtime = train_test_infer_loop(nn, user_loss,
+                                               train_dl, test_dl,
+                                               early_stopper, arch_params,
                                                hyper_params
                                                )
     results = {"average_mse": test_loss, 'inference_time': runtime}
