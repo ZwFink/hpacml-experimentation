@@ -712,6 +712,7 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
         print(f"Training time: {tl_end - tl_start}")
         test_loop_start = time.time()
         test_loss, test_loss_mape = test_loop(test_dl, model, loss_fn)
+        test_loss = test_loss_mape
         test_loop_end = time.time()
         scheduler.step(test_loss)
         print(f'Learning rate: {scheduler.get_last_lr()}')
@@ -847,7 +848,10 @@ class MiniBUDEOptionsSpecifier(BenchmarkSpecifier):
         return self.get_infer_data_from_ds(dataloader.dataset)
 
     def get_infer_data_from_ds(self, dataset):
-        return dataset.input_as_torch_tensor()
+        ds_torch = dataset.input_as_torch_tensor()
+        shape = ds_torch.shape
+        first_half = ds_torch[0:shape[0]//2]
+        return first_half
 
     @classmethod
     def get_dataset_generator_class(cls):
