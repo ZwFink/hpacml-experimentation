@@ -243,12 +243,14 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir):
     parsl.load(parsl_config)
     output_columns = ['trial']
     global TRIALS_ARCH
+    global TRIALS_HYPERPARMS
     with open(config, 'r') as f:
         config_global = yaml.safe_load(f)
         config_driver = config_global[benchmark]['bayesian_opt_driver_args']
         config_global = config_global[benchmark]
   
     TRIALS_ARCH = config_driver['architecture_config']['trials']
+    TRIALS_HYPERPARMS = config_driver['hyperparameter_config']['trials']
     print("Trials for hyperparameters:", TRIALS_HYPERPARMS)
     hyper_search_params = get_params(config_driver['hyperparameter_config'])
 
