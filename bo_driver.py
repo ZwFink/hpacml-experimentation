@@ -130,7 +130,11 @@ class EvalArgs:
 
 
 @bash_app
-def architecture_driver(benchmark_name, parsl_rundir_name, inputs=(), outputs=()):
+def architecture_driver(benchmark_name, parsl_rundir_name,
+                        inputs=(), outputs=(),
+                        stdout=parsl.AUTO_LOGNAME,
+                        stderr=parsl.AUTO_LOGNAME
+                        ):
     import yaml
     import sh
     import time
