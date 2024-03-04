@@ -143,8 +143,10 @@ class MiniWeatherNeuralNetwork(nn.Module):
                                                 conv2_kernel_size),
                                    stride=(1, 1), padding='same'
                                    )
-            self.fp = nn.Sequential(self.conv1, self.activ_fn, 
-                                    self.dropout, self.conv2, self.activ_fn
+            self.fp = nn.Sequential(self.conv1, nn.BatchNorm2d(conv1_out_channels), 
+                                    self.activ_fn, 
+                                    self.dropout, self.conv2, nn.BatchNorm2d(4),
+                                    self.activ_fn
                                     )
         else:
             # Here, we ignore Conv1 out channels
@@ -152,7 +154,9 @@ class MiniWeatherNeuralNetwork(nn.Module):
                                    kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
                                    padding='same'
                                    )
-            self.fp = nn.Sequential(self.conv1, self.activ_fn, self.dropout)
+            self.fp = nn.Sequential(self.conv1, nn.BatchNorm2d(4), 
+                                    self.activ_fn, self.dropout
+                                    )
 
         self.register_buffer('min', torch.full((4, 1), torch.inf))
         self.register_buffer('max', torch.full((4, 1), -torch.inf))
@@ -606,8 +610,6 @@ def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
             # writer.add_scalar('training loss', loss, epoch*len(dataloader) + batch)
             # print(f"Epoch: {epoch}, loss: {loss:>7f} [{current:>5d}/{size:>5d}]")
     print(f"(Training) Epoch: {epoch}, loss: {test_loss_mape/len(dataloader):>7f} [{current:>5d}/{size:>5d}]")
-    print(pred[0:10])
-    print(y[0:10])
 
 
 def test_loop(dataloader, model, loss_fn, user_loss_fn):
@@ -627,8 +629,6 @@ def test_loop(dataloader, model, loss_fn, user_loss_fn):
             if num_batches > dataloader.max_batches:
                 break
 
-    print(pred[0:10])
-    print(y[0:10])
     print(f"Test Error: \n Avg loss: {test_loss / num_batches:>8f}, Avg MAPE: {test_loss_mape / num_batches:>8f}")
     return test_loss / num_batches, test_loss_mape / num_batches
 
