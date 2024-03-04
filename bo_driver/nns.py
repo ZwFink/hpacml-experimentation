@@ -21,6 +21,8 @@ class MiniWeatherNeuralNetwork(nn.Module):
             self.activ_fn = nn.LeakyReLU()
         elif activ_fn_name == "tanh":
             self.activ_fn = nn.Tanh()
+        else:
+            self.activ_fn = nn.LeakyReLU()
 
         c1ks = conv1_kernel_size
         c1s = conv1_stride
@@ -94,11 +96,14 @@ class ParticleFilterNeuralNetwork(nn.Module):
         conv_kernel_size = int(network_params.get("conv_kernel_size"))
         conv_stride = int(network_params.get("conv_stride"))
         maxpool_kernel_size = int(network_params.get("maxpool_kernel_size"))
-        maxpool_stride = maxpool_kernel_size
+        maxpool_stride = int(maxpool_kernel_size)
         fc2_size = int(network_params.get("fc2_size"))
+
 
         self.conv_stack = nn.Sequential(
             nn.Conv2d(1, 1, kernel_size=conv_kernel_size, stride=conv_stride, padding=1),
+            nn.BatchNorm2d(1),
+            nn.PReLU(),
             nn.MaxPool2d(kernel_size=maxpool_kernel_size, stride=maxpool_stride, padding=0,dilation=1)
         ).to(device)
         input_size = 128
