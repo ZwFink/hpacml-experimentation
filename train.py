@@ -678,7 +678,7 @@ def infer_loop(model, dataloader, trials, writer=None):
     average_time = total_time / trials
     if writer:
       writer.add_scalar('inference time', average_time*1000, 0)
-    return mean, sem
+    return model, mean, sem
 
 def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper, arch_params, hyper_params):
     learning_rate = hyper_params.get("learning_rate")
@@ -726,16 +726,20 @@ def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper,
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             best_user_test_loss = user_test_loss
+            model_best, infer_time, infer_sem = infer_loop(model,
+                                                           test_dl,
+                                                           1, writer
+                                                           )
         if early_stopper.early_stop(test_loss):
             print(f'Early stopping at epoch {t+1} after max patience reached.')
             break
 
     infer_start = time.time()
-    infer_time, infer_sem = infer_loop(model, test_dl, 100, writer)
+    _, infer_time, infer_sem = infer_loop(model, test_dl, 100, writer)
     infer_end = time.time()
     print(f"Inference time: {(infer_end - infer_start)}")
     # YAML doesn't know how to handle tuples, so we return a list
-    return best_user_test_loss, [infer_time, infer_sem]
+    return model_best, best_user_test_loss, [infer_time, infer_sem]
 
 
 class BenchmarkSpecifier:
@@ -950,7 +954,8 @@ def has_datagen_args(config):
               help='Path to the configuration file for the architecture of this run')
 @click.option('--output', default='output.yaml',
               help='Path to write the output to')
-def main(name, config, architecture_config, output):
+@click.option('--model_path', default='model.pt', help = 'Path to save the model')
+def main(name, config, architecture_config, output, model_path):
     # TODO: This we need to get from the configuration file
     with open(config) as f:
       config = yaml.load(f, Loader=yaml.FullLoader)
@@ -1029,7 +1034,7 @@ def main(name, config, architecture_config, output):
     early_stopper = EarlyStopper(early_stop_parms['patience'], 
                                  early_stop_parms['min_delta_percent'])
     user_loss = BenchSpec.get_error_reporting_fn()
-    test_loss, runtime = train_test_infer_loop(nn, user_loss,
+    best_model, test_loss, runtime = train_test_infer_loop(nn, user_loss,
                                                train_dl, test_dl,
                                                early_stopper, arch_params,
                                                hyper_params
@@ -1038,6 +1043,8 @@ def main(name, config, architecture_config, output):
     print(results)
     with open(output, 'w') as f:
         yaml.dump(results, f)
+
+    torch.jit.save(best_model, model_path)
 
 if __name__ == '__main__':
     main()

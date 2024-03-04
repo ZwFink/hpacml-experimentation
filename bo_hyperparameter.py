@@ -82,6 +82,7 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
                              hyper_parameters, config_global,
                              train_script, benchmark_name,
                              trial_index,
+                             model_path
                              ):
     import tempfile
     import sh
@@ -98,7 +99,8 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
     command = sh.Command('python3').bake(train_script, 
     '--name', benchmark_name,
     '--config', config_filename, 
-    '--architecture_config', input_config_tmp.name, '--output', output_config_tmp.name
+    '--architecture_config', input_config_tmp.name, '--output', output_config_tmp.name,
+    '--model_path', model_path
     )
     print(str(command))
     
@@ -117,7 +119,7 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
     return trial_index, {"average_mse": (error, 0), 'inference_time': inference_time}
 
 
-def submit_parallel_trial(parameters_hyperparams, trial_index, eval_args):
+def submit_parallel_trial(parameters_hyperparams, trial_index, model_path, eval_args):
     # This causes issues when submitting one job from another, see:
     # https://bugs.schedmd.com/show_bug.cgi?id=14298
     try:
@@ -135,17 +137,19 @@ def submit_parallel_trial(parameters_hyperparams, trial_index, eval_args):
         config_global=eval_args.config_global,
         train_script=eval_args.config_global['train_script'],
         benchmark_name=eval_args.benchmark_name,
-        trial_index=trial_index
+        trial_index=trial_index,
+        model_path=model_path
     )
     return results
 
 
-def evaluate_architecture(ax_client, eval_args):
+def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
     ax_client_hyperparams = ax_client
 
     max_parallelism = ax_client_hyperparams.get_max_parallelism()[-1][1]
     print("Max parallelism:", ax_client_hyperparams.get_max_parallelism())
     trial_to_runtime_sem = dict()
+    trial_to_model = dict()
 
     for i in range(0, TRIALS_HYPERPARMS, max_parallelism):
         job_futures = list()
@@ -155,8 +159,12 @@ def evaluate_architecture(ax_client, eval_args):
             if not (i + j < TRIALS_HYPERPARMS):
                 continue
             params, trial_index = ax_client_hyperparams.get_next_trial()
+            model_name = f'model_{arch_trial_index}_{trial_index}'
+            model_path = os.path.join(model_dir, model_name)
+            trial_to_model[trial_index] = model_path
             job_futures.append(submit_parallel_trial(params,
                                                      trial_index,
+                                                     model_path,
                                                      eval_args))
 
         results = [f.result() for f in job_futures]
@@ -170,6 +178,13 @@ def evaluate_architecture(ax_client, eval_args):
             process_result(trial_index, result, ax_client_hyperparams)
 
     best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
+    for idx, model_path in trial_to_model.items():
+        if idx != best_index:
+            try:
+                os.remove(model_path)
+            except FileNotFoundError:
+                print(f'The model {model_path} was not found?')
+                pass
     best_parameters = (best_parameters, results)
     best_sem = trial_to_runtime_sem[best_index]
     print(best_parameters)
@@ -201,7 +216,8 @@ def process_result(trial_index, result, ax_client_hyperparams):
 @click.option('--benchmark', help='Name of the benchmark', required=True)
 @click.option('--output', default=None, help='Path to the output directory. Mutually exclusive with output_base.', required=False)
 @click.option('--parsl_rundir', default='./rundir', help='Path to the parsl run directory', required=False)
-def main(config, trial_index, architecture, benchmark, output, parsl_rundir):
+@click.option('--model_directory', default=None, help='Path to the model directory', required=False)
+def main(config, trial_index, architecture, benchmark, output, parsl_rundir, model_directory):
 
     config_filename = config
     local_provider = LocalProvider(
@@ -275,7 +291,11 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir):
                          )
   
     try:
-        eval_results = evaluate_architecture(ax_client_hyperparams, eval_args)
+        eval_results = evaluate_architecture(ax_client_hyperparams,
+                                             trial_index,
+                                             model_directory,
+                                             eval_args
+                                             )
         output_values['success'] = True
     except TrialFailureException:
         output_values['success'] = False

@@ -80,6 +80,9 @@ class OutputManager:
         print(trial_results_df.index.name)
         trial_results_df.to_csv(f"{str(self.output_dir_path)}/{name}.csv", index=True)
 
+    def get_output_dir(self):
+        return self.output_dir_path
+
 
 def get_params(config):
     parm_space = config['parameter_space']
@@ -131,6 +134,7 @@ class EvalArgs:
 
 @bash_app
 def architecture_driver(benchmark_name, parsl_rundir_name,
+                        model_dir,
                         inputs=(), outputs=(),
                         stdout=parsl.AUTO_LOGNAME,
                         stderr=parsl.AUTO_LOGNAME
@@ -150,6 +154,7 @@ def architecture_driver(benchmark_name, parsl_rundir_name,
     cmd = cmd.bake('bo_hyperparameter.py')
     cmd = cmd.bake('--config', input_config,
                    '--trial_index', parameters['trial_index'],
+                   '--model_directory', model_dir,
                    '--architecture', input_params,
                    '--output', outputs[0],
                    '--parsl_rundir', parsl_rundir_name,
@@ -288,8 +293,12 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
             rundir_arch = f'{parsl_rundir}/architecture_{i + j}'
             n_success = 0
   
+            out_model_base = om.get_output_dir()
+            out_model_base = out_model_base / Path('models')
+            out_model_base.mkdir(parents=True, exist_ok=True)
             output = architecture_driver(benchmark,
                                          rundir_arch,
+                                         str(out_model_base),
                                          inputs=[input_file_config, input_file],
                                          outputs=[output_file]
                                          )
