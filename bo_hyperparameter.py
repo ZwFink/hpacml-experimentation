@@ -81,7 +81,8 @@ def get_trial_output_data(output_columns, data_dict):
 def evaluate_hyperparameters(config_filename, arch_parameters,
                              hyper_parameters, config_global,
                              train_script, benchmark_name,
-                             trial_index):
+                             trial_index,
+                             ):
     import tempfile
     import sh
     import yaml
@@ -106,7 +107,7 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
     except Exception as e:
         print("Error running command")
         print(e)
-        return {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}
+        return trial_index, {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}
 
     with open(output_config_tmp.name, 'r') as f:
         results = yaml.safe_load(f)
@@ -163,6 +164,7 @@ def evaluate_architecture(ax_client, eval_args):
         print(f'Finished running trials {i} to {i + max_parallelism} in {tend - tst} seconds')
         for res in results:
             trial_index, result = res
+            print(f'Result for trial {trial_index}: {result}')
             result['inference_time'] = tuple(result['inference_time'])
             trial_to_runtime_sem[trial_index] = result['inference_time'][1]
             process_result(trial_index, result, ax_client_hyperparams)
