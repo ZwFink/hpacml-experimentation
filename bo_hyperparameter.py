@@ -159,7 +159,7 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
             if not (i + j < TRIALS_HYPERPARMS):
                 continue
             params, trial_index = ax_client_hyperparams.get_next_trial()
-            model_name = f'model_{arch_trial_index}_{trial_index}'
+            model_name = f'model_{arch_trial_index}_{trial_index}.pth'
             model_path = os.path.join(model_dir, model_name)
             trial_to_model[trial_index] = model_path
             job_futures.append(submit_parallel_trial(params,
