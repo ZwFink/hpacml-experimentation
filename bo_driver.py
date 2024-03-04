@@ -297,7 +297,12 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
 
         results = output_futures
         for j, res in enumerate(results):
-            of = res.outputs[0].result()
+            try:
+                of = res.outputs[0].result()
+            except Exception as e:
+                print(f"Trial {i+j} failed with {e}")
+                ax_client_architecture.log_trial_failure(trial_index)
+                continue
             with open(of, 'r') as f:
                 results = yaml.safe_load(f)
                 trial_index = results['trial_index']
@@ -333,7 +338,7 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
   
         # print pareto optimal parameters 
         if n_success > 0:
-          best_parameters = ax_client_architecture.get_pareto_optimal_parameters(use_model_predictions=False)
+          best_parameters = ax_client_architecture.get_pareto_optimal_parameters()
         else:
           best_parameters = {}
         print("pareto parameters:", best_parameters)
