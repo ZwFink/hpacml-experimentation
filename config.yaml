@@ -368,7 +368,7 @@ minibude:
         type: range
         bounds:
         - 2
-        - 12
+        - 8 
       - name: hidden_1_features
         type: fixed
         value: 22320
