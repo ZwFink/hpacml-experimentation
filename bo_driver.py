@@ -343,7 +343,7 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
         else:
           best_parameters = {}
         print("pareto parameters:", best_parameters)
-        om.save_optimization_state(i, ax_client_architecture)
+        om.save_optimization_state(i+j, ax_client_architecture)
         om.save_trial_results_df(output_df)
         om.save_pareto_parameters(json.dumps(best_parameters))
 
