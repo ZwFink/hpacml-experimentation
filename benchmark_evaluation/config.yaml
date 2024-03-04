@@ -1,0 +1,27 @@
+---
+particlefilter:
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-04_particlefilter/models'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/particlefilter-cuda/'
+  run_command: './main -x 128 -y 128 -z 24 -np $((1<<12))'
+  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-04_particlefilter/models/model_3_20.pth'
+  # We run the benchmark in exact mode to compare against the approx outputs
+  comparison_args:
+    region_name: 'particlefilter'
+    load_entire: false
+    train_test_dataset: ''
+    output_models_directory: 'particlefilter_output_models'
+    loss_fn: rmse
+miniweather:
+  train_args:
+    pareto_frontier_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-02-28_miniweather/pareto_parameters.json'
+    all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-02-28_miniweather/trial_results.csv'
+    pareto_only: false
+    epochs: 500
+    early_stop_args:
+      patience: 100
+      min_delta_percent: 1
+  data_args:
+    region_name: 'MiniWeatherTimestep'
+    load_entire: false
+    train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/miniweather_768_384.h5'
+    output_models_directory: 'miniweather_output_models'
