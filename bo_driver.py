@@ -293,6 +293,7 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
                                          inputs=[input_file_config, input_file],
                                          outputs=[output_file]
                                          )
+            output.hpac_trial_index = trial_index
             output_futures.append(output)
 
         results = output_futures
@@ -301,7 +302,7 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
                 of = res.outputs[0].result()
             except Exception as e:
                 print(f"Trial {i+j} failed with {e}")
-                ax_client_architecture.log_trial_failure(trial_index)
+                ax_client_architecture.log_trial_failure(res.hpac_trial_index)
                 continue
             with open(of, 'r') as f:
                 results = yaml.safe_load(f)
