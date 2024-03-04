@@ -175,8 +175,6 @@ def train_loop(writer, dataloader, model, loss_fn, optimizer, scheduler, epoch):
             # writer.add_scalar('training loss', loss, epoch*len(dataloader) + batch)
             # print(f"Epoch: {epoch}, loss: {loss:>7f} [{current:>5d}/{size:>5d}]")
     print(f"(Training) Epoch: {epoch}, loss: {test_loss_mape/len(dataloader):>7f} [{current:>5d}/{size:>5d}]")
-    print(pred[0:10])
-    print(y[0:10])
 
 
 def test_loop(dataloader, model, loss_fn):
@@ -196,8 +194,6 @@ def test_loop(dataloader, model, loss_fn):
             if num_batches > dataloader.max_batches:
                 break
 
-    print(pred[0:10])
-    print(y[0:10])
     print(f"Test Error: \n Avg loss: {test_loss / num_batches:>8f}, Avg MAPE: {test_loss_mape / num_batches:>8f}")
     return test_loss / num_batches, test_loss_mape / num_batches
 
@@ -263,16 +259,13 @@ def train_test_infer_loop(nn_class, train_dl, test_dl, early_stopper, arch_param
     print(model)
     writer = None
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(),
+    optimizer = torch.optim.AdamW(model.parameters(),
                                   lr=learning_rate,
                                   weight_decay=weight_decay
                                   )
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-    #                                                        'min', factor=0.5,
-    #                                                        threshold=0.01,
-    #                                                        patience=5
-    #                                                        )
-    scheduler = DummyScheduler(optimizer)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                           'min'
+                                                           )
     best_test_loss = np.inf
     model_epoch = 0
     best_model = None
