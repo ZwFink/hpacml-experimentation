@@ -201,11 +201,13 @@ class ParticleFilterNeuralNetwork(nn.Module):
         maxpool_stride = maxpool_kernel_size
         fc2_size = network_params.get("fc2_size")
 
+
         self.conv_stack = nn.Sequential(
             nn.Conv2d(1, 1, kernel_size=conv_kernel_size, stride=conv_stride, padding=1),
+            nn.BatchNorm2d(1),
+            nn.PReLU(),
             nn.MaxPool2d(kernel_size=maxpool_kernel_size, stride=maxpool_stride, padding=0,dilation=1)
         ).to(device)
-        input_size = 128
 
         # Calculate output size after conv and maxpool layers
         def conv_output_size_1d(dimension, kernel_size, stride, padding, dilation):
