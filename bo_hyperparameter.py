@@ -103,7 +103,7 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
     
     try:
         command(_out=sys.stdout, _err=sys.stderr)
-    except sh.ErrorReturnCode as e:
+    except Exception as e:
         print("Error running command")
         print(e)
         return {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}
