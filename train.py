@@ -212,6 +212,7 @@ class ParticleFilterNeuralNetwork(nn.Module):
             nn.PReLU(),
             nn.MaxPool2d(kernel_size=maxpool_kernel_size, stride=maxpool_stride, padding=0,dilation=1)
         ).to(device)
+        input_size = 128
 
         # Calculate output size after conv and maxpool layers
         def conv_output_size_1d(dimension, kernel_size, stride, padding, dilation):
