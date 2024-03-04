@@ -175,16 +175,11 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
             print(f'Result for trial {trial_index}: {result}')
             result['inference_time'] = tuple(result['inference_time'])
             trial_to_runtime_sem[trial_index] = result['inference_time'][1]
-            process_result(trial_index, result, ax_client_hyperparams)
+            process_result(trial_index, result, 
+                           ax_client_hyperparams, trial_to_model[trial_index]
+                           )
 
     best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
-    for idx, model_path in trial_to_model.items():
-        if idx != best_index:
-            try:
-                os.remove(model_path)
-            except FileNotFoundError:
-                print(f'The model {model_path} was not found?')
-                pass
     best_parameters = (best_parameters, results)
     best_sem = trial_to_runtime_sem[best_index]
     print(best_parameters)
@@ -199,14 +194,26 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
     return result_data, data, eval_args.arch_parameters
 
 
-def process_result(trial_index, result, ax_client_hyperparams):
+def process_result(trial_index, result, ax_client_hyperparams, model_path):
     if result['average_mse'][0] == 1e9:
         ax_client_hyperparams.log_trial_failure(trial_index)
+        try:
+            os.remove(model_path)
+        except FileNotFoundError:
+            print(f'The model {model_path} was not found?')
+            pass
         raise TrialFailureException()
     else:
         ax_client_hyperparams.complete_trial(trial_index=trial_index,
                                              raw_data=result
                                             )
+        best_index, _, __ = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
+        if best_index != trial_index:
+            try:
+                os.remove(model_path)
+            except FileNotFoundError:
+                print(f'The model {model_path} was not found?')
+                pass
 
 
 @click.command()
