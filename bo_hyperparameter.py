@@ -160,7 +160,11 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
         for j in range(max_parallelism):
             if not (i + j < TRIALS_HYPERPARMS):
                 continue
-            params, trial_index = ax_client_hyperparams.get_next_trial()
+            try:
+                params, trial_index = ax_client_hyperparams.get_next_trial()
+            except OptimizationShouldStop as exc:
+                print(f'Optimization should stop: {exc}')
+                break
             model_name = f'model_{arch_trial_index}_{trial_index}.pth'
             model_path = os.path.join(model_dir, model_name)
             trial_to_model[trial_index] = model_path
@@ -172,17 +176,14 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
         results = [f.result() for f in job_futures]
         tend = time.time()
         print(f'Finished running trials {i} to {i + max_parallelism} in {tend - tst} seconds')
-        should_stop = False
         for res in results:
             trial_index, result = res
             print(f'Result for trial {trial_index}: {result}')
             result['inference_time'] = tuple(result['inference_time'])
             trial_to_runtime_sem[trial_index] = result['inference_time'][1]
-            should_stop = process_result(trial_index, result, 
-                            ax_client_hyperparams, trial_to_model[trial_index]
+            process_result(trial_index, result, 
+                           ax_client_hyperparams, trial_to_model[trial_index]
                            )
-        if should_stop:
-            break
 
     best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
     
@@ -213,7 +214,6 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
 
 
 def process_result(trial_index, result, ax_client_hyperparams, model_path):
-    should_stop = False
     if result['average_mse'][0] == 1e9:
         ax_client_hyperparams.log_trial_failure(trial_index)
         try:
@@ -223,22 +223,16 @@ def process_result(trial_index, result, ax_client_hyperparams, model_path):
             pass
         raise TrialFailureException()
     else:
-        try:
-            ax_client_hyperparams.complete_trial(trial_index=trial_index,
-                                                 raw_data=result
-                                                )
-        except OptimizationShouldStop:
-            should_stop = True
-            print("Optimization should stop")
-        finally:
-            best_index, _, __ = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
-            if best_index != trial_index:
-                try:
-                    os.remove(model_path)
-                except FileNotFoundError:
-                    print(f'The model {model_path} was not found?')
-                    pass
-    return should_stop
+        ax_client_hyperparams.complete_trial(trial_index=trial_index,
+                                             raw_data=result
+                                            )
+        best_index, _, __ = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
+        if best_index != trial_index:
+            try:
+                os.remove(model_path)
+            except FileNotFoundError:
+                print(f'The model {model_path} was not found?')
+                pass
 
 
 @click.command()
