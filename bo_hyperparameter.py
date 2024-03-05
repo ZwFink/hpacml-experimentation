@@ -180,6 +180,18 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
                            )
 
     best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
+
+    # we need to do this here as well because in process_results
+    # we don't delete the model of the old best trial,
+    # so they accumulate. That's okay though, we'll find them
+    # here and delete them.
+    for idx, model_name in trial_to_model.items():
+        if idx != best_index:
+            try:
+                os.remove(model_name)
+            except FileNotFoundError:
+                print(f'The model {model_name} was not found?')
+                pass
     best_parameters = (best_parameters, results)
     best_sem = trial_to_runtime_sem[best_index]
     print(best_parameters)
