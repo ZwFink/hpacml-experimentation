@@ -1,9 +1,9 @@
 ---
 particlefilter:
-  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-04_particlefilter/models'
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_particlefilter/models'
   benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/particlefilter-cuda/'
   run_command: './main -x 128 -y 128 -z 24 -np $((1<<12))'
-  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-04_particlefilter/models/model_3_20.pth'
+  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_particlefilter/models/model_13_4.pth'
   # We run the benchmark in exact mode to compare against the approx outputs
   comparison_args:
     region_name: 'particlefilter'

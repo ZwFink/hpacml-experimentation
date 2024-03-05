@@ -100,6 +100,29 @@ class Evaluator:
         raise NotImplementedError
 
 
+class ProcessedResultsWrapper:
+    def __init__(self, speedup=None, error=None):
+        self.speedup = speedup
+        self.error = error
+
+    def __str__(self):
+        return str(self.__dict__)
+
+    def __repr__(self):
+        return str(self)
+
+    def get_error(self):
+        return self.error
+    
+    def get_speedup(self):
+        return self.speedup
+
+
+class ParticleFilterProcessedResultsWrapper(ProcessedResultsWrapper):
+    def __init__(self, speedup=None, error=None):
+        super().__init__(speedup, error)
+
+
 class ParticleFilterEvaluator(Evaluator):
     def __init__(self, config):
         super().__init__('particlefilter', config)
@@ -108,19 +131,8 @@ class ParticleFilterEvaluator(Evaluator):
         def __init__(self, df):
             self.result = df
 
-    class ParticleFilterProcessedResultsWrapper:
-        def __init__(self, speedup=None, error=None):
-            self.speedup = speedup
-            self.error = error
-
-        def get_error(self):
-            return self.error
-    
-        def get_speedup(self):
-            return self.speedup
-
     def combine_error_speedup(self, speedup, error):
-        pfr = self.ParticleFilterProcessedResultsWrapper
+        pfr = ParticleFilterProcessedResultsWrapper
         return pfr(speedup=speedup.speedup, error=error.error)
 
     def process_raw_data(self, data_str):
@@ -150,9 +162,9 @@ class ParticleFilterEvaluator(Evaluator):
 
         pf_error = loss(ground_truth, pf_stacked)
         approx_error = loss(ground_truth, approx_stacked)
-        res = self.ParticleFilterProcessedResultsWrapper(error=(pf_error,
-                                                         approx_error)
-                                                         )
+        res = ParticleFilterProcessedResultsWrapper(error=(pf_error,
+                                                           approx_error)
+                                                    )
         return res
 
     def get_speedup(self, ground_truth, approx):
@@ -162,6 +174,4 @@ class ParticleFilterEvaluator(Evaluator):
         exact_ot = pf_exact_results['offload_time'][1::]
         approx_ot = pf_approx_results['offload_time'][1::]
         avg_speedup = exact_ot.mean()/approx_ot.mean()
-        return self.ParticleFilterProcessedResultsWrapper(speedup=avg_speedup)
-
-
+        return ParticleFilterProcessedResultsWrapper(speedup=avg_speedup)
