@@ -29,8 +29,6 @@ import tempfile
 from botorch.acquisition import qExpectedImprovement
 from ax.modelbridge.generation_strategy import GenerationStep, GenerationStrategy
 from ax.modelbridge.registry import ModelRegistryBase, Models
-from ax.global_stopping.strategies.improvement import ImprovementGlobalStoppingStrategy
-from ax.exceptions.core import OptimizationShouldStop
 from ax.service.ax_client import AxClient, ObjectiveProperties
 import parsl
 from parsl.app.app import python_app
@@ -160,11 +158,7 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
         for j in range(max_parallelism):
             if not (i + j < TRIALS_HYPERPARMS):
                 continue
-            try:
-                params, trial_index = ax_client_hyperparams.get_next_trial()
-            except OptimizationShouldStop as exc:
-                print(f'Optimization should stop: {exc}')
-                break
+            params, trial_index = ax_client_hyperparams.get_next_trial()
             model_name = f'model_{arch_trial_index}_{trial_index}.pth'
             model_path = os.path.join(model_dir, model_name)
             trial_to_model[trial_index] = model_path
@@ -186,19 +180,6 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
                            )
 
     best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
-    
-    # we need to do this here as well because in process_results
-    # we don't delete the model of the old best trial,
-    # so they accumulate. That's okay though, we'll find them
-    # here and delete them.
-    for idx, model_name in trial_to_model.items():
-        if idx != best_index:
-            try:
-                os.remove(model_name)
-            except FileNotFoundError:
-                print(f'The model {model_name} was not found?')
-                pass
-
     best_parameters = (best_parameters, results)
     best_sem = trial_to_runtime_sem[best_index]
     print(best_parameters)
@@ -301,12 +282,8 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir, mod
     with open(architecture, 'r') as f:
         arch_config = yaml.safe_load(f)
     arch_params = arch_config['arch_params']
-
-    stopping_strategy = ImprovementGlobalStoppingStrategy(
-        min_trials=5 + 15, window_size=10, improvement_bar=0.01
-    )
         
-    ax_client_hyperparams = AxClient(early_stopping_strategy=stopping_strategy)
+    ax_client_hyperparams = AxClient()
     hyper_arch = ax_client_hyperparams.create_experiment(name="PF_hyperparameters",
         parameters=hyper_search_params.parameter_space, 
         objectives=hyper_search_params.objectives,
