@@ -29,6 +29,8 @@ import tempfile
 from botorch.acquisition import qExpectedImprovement
 from ax.modelbridge.generation_strategy import GenerationStep, GenerationStrategy
 from ax.modelbridge.registry import ModelRegistryBase, Models
+from ax.global_stopping.strategies.improvement import ImprovementGlobalStoppingStrategy
+from ax.exceptions.core import OptimizationShouldStop
 from ax.service.ax_client import AxClient, ObjectiveProperties
 import parsl
 from parsl.app.app import python_app
@@ -170,14 +172,17 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
         results = [f.result() for f in job_futures]
         tend = time.time()
         print(f'Finished running trials {i} to {i + max_parallelism} in {tend - tst} seconds')
+        should_stop = False
         for res in results:
             trial_index, result = res
             print(f'Result for trial {trial_index}: {result}')
             result['inference_time'] = tuple(result['inference_time'])
             trial_to_runtime_sem[trial_index] = result['inference_time'][1]
-            process_result(trial_index, result, 
-                           ax_client_hyperparams, trial_to_model[trial_index]
+            should_stop = process_result(trial_index, result, 
+                            ax_client_hyperparams, trial_to_model[trial_index]
                            )
+        if should_stop:
+            break
 
     best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
     best_parameters = (best_parameters, results)
@@ -195,6 +200,7 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
 
 
 def process_result(trial_index, result, ax_client_hyperparams, model_path):
+    should_stop = False
     if result['average_mse'][0] == 1e9:
         ax_client_hyperparams.log_trial_failure(trial_index)
         try:
@@ -204,16 +210,22 @@ def process_result(trial_index, result, ax_client_hyperparams, model_path):
             pass
         raise TrialFailureException()
     else:
-        ax_client_hyperparams.complete_trial(trial_index=trial_index,
-                                             raw_data=result
-                                            )
-        best_index, _, __ = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
-        if best_index != trial_index:
-            try:
-                os.remove(model_path)
-            except FileNotFoundError:
-                print(f'The model {model_path} was not found?')
-                pass
+        try:
+            ax_client_hyperparams.complete_trial(trial_index=trial_index,
+                                                 raw_data=result
+                                                )
+        except OptimizationShouldStop:
+            should_stop = True
+            print("Optimization should stop")
+        finally:
+            best_index, _, __ = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
+            if best_index != trial_index:
+                try:
+                    os.remove(model_path)
+                except FileNotFoundError:
+                    print(f'The model {model_path} was not found?')
+                    pass
+    return should_stop
 
 
 @click.command()
@@ -282,8 +294,12 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir, mod
     with open(architecture, 'r') as f:
         arch_config = yaml.safe_load(f)
     arch_params = arch_config['arch_params']
+
+    stopping_strategy = ImprovementGlobalStoppingStrategy(
+        min_trials=5 + 15, window_size=10, improvement_bar=0.01
+    )
         
-    ax_client_hyperparams = AxClient()
+    ax_client_hyperparams = AxClient(early_stopping_strategy=stopping_strategy)
     hyper_arch = ax_client_hyperparams.create_experiment(name="PF_hyperparameters",
         parameters=hyper_search_params.parameter_space, 
         objectives=hyper_search_params.objectives,
