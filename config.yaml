@@ -376,7 +376,7 @@ minibude:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 50
+      trials: 30
       parameter_space:
       - name: learning_rate
         type: range
