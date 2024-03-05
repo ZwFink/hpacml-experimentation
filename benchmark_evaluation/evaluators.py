@@ -15,6 +15,12 @@ DEFAULT_EXACT_H5 = f'/tmp/hpac_db_exact_{os.getpid()}.h5'
 def RMSE(ground_truth, approx):
     return np.sqrt(np.mean((ground_truth - approx)**2))
 
+def get_loss_fn_from_str(loss_str):
+    if loss_str == 'rmse':
+        return RMSE
+    else:
+        raise ValueError('Unknown loss function')
+
 class Evaluator:
     def __init__(self, benchmark, config):
         self.benchmark = benchmark
@@ -48,10 +54,16 @@ class Evaluator:
                 exact_processed = self.process_raw_data(exact_out)
 
         loss = self.config['comparison_args']['loss_fn']
-        return self.get_error(exact_processed,
+        loss_fn = get_loss_fn_from_str(loss)
+        speedup = self.get_speedup(exact_processed, 
+                                   approx_processed
+                                   )
+        error = self.get_error(exact_processed,
                               approx_processed,
-                              RMSE
+                              loss_fn
                               )
+
+        return self.combine_error_speedup(speedup, error)
 
     def run_approx(self, run_command):
         # TODO: This is not from the config: need to get the number
@@ -84,6 +96,9 @@ class Evaluator:
         sh.make('clean')
         sh.make()
 
+    def combine_error_speedup(self, speedup, error):
+        raise NotImplementedError
+
 
 class ParticleFilterEvaluator(Evaluator):
     def __init__(self, config):
@@ -103,6 +118,10 @@ class ParticleFilterEvaluator(Evaluator):
     
         def get_speedup(self):
             return self.speedup
+
+    def combine_error_speedup(self, speedup, error):
+        pfr = self.ParticleFilterProcessedResultsWrapper
+        return pfr(speedup=speedup.speedup, error=error.error)
 
     def process_raw_data(self, data_str):
         data = io.StringIO()
@@ -135,5 +154,14 @@ class ParticleFilterEvaluator(Evaluator):
                                                          approx_error)
                                                          )
         return res
+
+    def get_speedup(self, ground_truth, approx):
+        pf_exact_results = ground_truth.result
+        pf_approx_results = approx.result
+
+        exact_ot = pf_exact_results['offload_time'][1::]
+        approx_ot = pf_approx_results['offload_time'][1::]
+        avg_speedup = exact_ot.mean()/approx_ot.mean()
+        return self.ParticleFilterProcessedResultsWrapper(speedup=avg_speedup)
 
 
