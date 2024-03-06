@@ -2,6 +2,7 @@ import pandas as pd
 import sh
 import numpy as np
 import h5py
+from collections import defaultdict
 import io
 import os
 import tempfile
@@ -43,7 +44,7 @@ class Evaluator:
         else:
             raise ValueError(f'Unknown benchmark: {benchmark}')
 
-    def run_and_compute_error(self):
+    def run_and_compute_speedup_and_error(self):
         benchmark_dir = self.config['benchmark_location']
         with tempfile.TemporaryDirectory() as tmpdirname:
             with sh.pushd(tmpdirname):
@@ -73,20 +74,17 @@ class Evaluator:
                                approx_processed,
                                loss_fn
                                )
-        print(f'The error is {error}')
         speedup = self.get_speedup(exact_processed, 
                                    approx_processed
                                    )
-
-
         return self.combine_error_speedup(speedup, error)
-    
+
     def get_run_command(self):
         return self.config['run_command']
 
     def run_approx(self, run_command):
         # TODO: This is not from the config: need to get the number
-        #from somewhere else
+        # from somewhere else
         # because each run of this will have a different one
         os.environ['SURROGATE_MODEL'] = self.config['surrogate_model']
         os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5
@@ -103,8 +101,6 @@ class Evaluator:
         buf = io.StringIO()
         cmd(_out=buf)
         buf.seek(0)
-        print(buf.read())
-        buf.seek(0)
         return buf.read()
 
     def create_command(self, cmd_str):
@@ -120,15 +116,16 @@ class Evaluator:
         sh.make('CAPTURE_OUTPUT=1')
 
     def combine_error_speedup(self, speedup, error):
-        raise NotImplementedError
+        return ProcessedResultsWrapper(speedup=speedup, error=error)
 
     # remove the approx and exact h5 files
-    # def __del__(self):
-    #     try:
-    #         os.remove(DEFAULT_APPROX_H5)
-    #         os.remove(DEFAULT_EXACT_H5)
-    #     except FileNotFoundError:
-    #         pass
+    def __del__(self):
+        try:
+            os.remove(DEFAULT_APPROX_H5)
+            os.remove(DEFAULT_EXACT_H5)
+        except FileNotFoundError:
+            pass
+
 
 class ProcessedResultsWrapper:
     def __init__(self, speedup=None, error=None):
@@ -143,7 +140,7 @@ class ProcessedResultsWrapper:
 
     def get_error(self):
         return self.error
-    
+
     def get_speedup(self):
         return self.speedup
 
@@ -209,28 +206,66 @@ class ParticleFilterEvaluator(Evaluator):
 
 class HDF5ResultsWrapper:
     def __init__(self, filename, group_name):
-        self._result = h5py.File(filename, 'r')
-        self._result = self._result[group_name]['output']
-        print(f'The shape is {self._result.shape}')
+        self._hdf_result = h5py.File(filename, 'r')
+        self._hdf_result = self._hdf_result[group_name]['output']
 
     @classmethod
     def get_error(cls, ground_truth, approx, loss):
-        gt_result = ground_truth.result
-        approx_result = approx.result
-        return loss(gt_result, approx_result)
+        gt_hdf_result = ground_truth.hdf_result
+        approx_hdf_result = approx.hdf_result
+        return loss(gt_hdf_result, approx_hdf_result)
 
     @property
-    def result(self):
-        return np.array(self._result)
+    def hdf_result(self):
+        return np.array(self._hdf_result)
+
+
+class StringResultsWrapper:
+    def __init__(self, result):
+        self._str_result = result
+
+    @property
+    def str_result(self):
+        return self._str_result
+
+    @classmethod
+    def get_speedup(cls, ground_truth, approx):
+        raise NotImplementedError
+
+    @property
+    def stdout(self):
+        return self.str_result
+
+
+class MiniBUDEResultsWrapper(HDF5ResultsWrapper, StringResultsWrapper):
+    def __init__(self, filename, group_name, stdout):
+        HDF5ResultsWrapper.__init__(self, filename, group_name)
+        StringResultsWrapper.__init__(self, stdout)
+
+    @classmethod
+    def get_error(cls, ground_truth, approx, loss):
+        return HDF5ResultsWrapper.get_error(ground_truth, approx, loss)
+
+
+class EventParser:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def parse_events_from_str(cls, stream):
+        opt = defaultdict(list)
+        event_re = re.compile('EVENT (\S+): (\d+\.{0,1}\d*)ms')
+        matches = event_re.findall(stream)
+        for match in matches:
+            event = match[0]
+            time = float(match[1])
+            opt[event].append(time)
+        return opt
+
 
 class MiniBUDEEvaluator(Evaluator):
     def __init__(self, config):
         super().__init__('minibude', config)
-
-    class MiniBUDEResultsWrapper(HDF5ResultsWrapper):
-        def __init__(self, filename, group_name, stdout):
-            super().__init__(filename, group_name)
-            self.stdout = stdout
 
     def get_run_command(self):
         trial_num = self.get_trial_num(self.config['surrogate_model'])
@@ -268,10 +303,28 @@ class MiniBUDEEvaluator(Evaluator):
         else:
             fname = DEFAULT_EXACT_H5
 
-        return self.MiniBUDEResultsWrapper(fname,
-                                           rgn_name,
-                                           data_str
-                                           )
+        return MiniBUDEResultsWrapper(fname,
+                                      rgn_name,
+                                      data_str
+                                      )
+
+    def get_events(self, stdout):
+        return EventParser.parse_events_from_str(stdout)
 
     def get_error(self, ground_truth, approx, loss):
-        return HDF5ResultsWrapper.get_error(ground_truth, approx, loss)
+        return MiniBUDEResultsWrapper.get_error(ground_truth, approx, loss)
+
+    def get_speedup(self, ground_truth, approx):
+        gt_events = self.get_events(ground_truth.stdout)
+        approx_events = self.get_events(approx.stdout)
+        gt_trials = gt_events['Trial']
+        approx_trials = approx_events['Trial']
+        if len(gt_trials) != len(approx_trials):
+            raise ValueError('The number of trials in the ground truth and approx are not the same')
+        if len(gt_trials) == 1:
+            start = 0
+        else:
+            start = 1
+        gt_avg = np.mean(gt_trials[start::])
+        ap_avg = np.mean(approx_trials[start::])
+        return gt_avg/ap_avg
