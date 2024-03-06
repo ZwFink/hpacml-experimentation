@@ -27,7 +27,7 @@ miniweather:
 minibude:
   models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_minibude/models'
   run_command: './main -x 128 -y 128 -z 24 -np $((1<<12))'
-  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_minibude/models/model_0_28.pth'
+  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_minibude/models/model_2_18.pth'
   all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_minibude/trial_results.csv'
   benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE_testing/'
   dataset_gen_command:
@@ -41,4 +41,5 @@ minibude:
   # We run the benchmark in exact mode to compare against the approx outputs
   comparison_args:
     region_name: 'BUDEOutput'
+    start_index: 1048576
     loss_fn: mape
