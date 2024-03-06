@@ -13,9 +13,11 @@ def main(benchmark, config):
     benchmark_config = config[benchmark]
 
     evaluator = Evaluator.get_evaluator_class(benchmark)(benchmark_config)
-    wrapped_result = evaluator.run_and_compute_speedup_and_error()
+    wrapped_result, events = evaluator.run_and_compute_speedup_and_error(get_events=True)
     print(wrapped_result.get_error())
     print(wrapped_result.get_speedup())
+
+    print(events)
 
 
 if __name__ == '__main__':

@@ -44,7 +44,7 @@ class Evaluator:
         else:
             raise ValueError(f'Unknown benchmark: {benchmark}')
 
-    def run_and_compute_speedup_and_error(self):
+    def run_and_compute_speedup_and_error(self, get_events=True):
         benchmark_dir = self.config['benchmark_location']
         with tempfile.TemporaryDirectory() as tmpdirname:
             with sh.pushd(tmpdirname):
@@ -77,6 +77,11 @@ class Evaluator:
         speedup = self.get_speedup(exact_processed, 
                                    approx_processed
                                    )
+        if get_events:
+            events = self.get_and_combine_events(exact_processed,
+                                                 approx_processed
+                                                 )
+            return self.combine_error_speedup(speedup, error), events
         return self.combine_error_speedup(speedup, error)
 
     def get_run_command(self):
@@ -117,6 +122,19 @@ class Evaluator:
 
     def combine_error_speedup(self, speedup, error):
         return ProcessedResultsWrapper(speedup=speedup, error=error)
+
+    def get_and_combine_events(self, ground_truth, approx):
+        gtevents = EventParser.parse_events_from_str(ground_truth.stdout)
+        apevents = EventParser.parse_events_from_str(approx.stdout)
+
+        gtevent_df = pd.DataFrame(gtevents)
+        apevents_df = pd.DataFrame(apevents)
+        gtevent_df['mode'] = 'Exact'
+        apevents_df['mode'] = 'Approx'
+
+        #combine them
+        combined = pd.concat([gtevent_df, apevents_df])
+        return combined
 
     # remove the approx and exact h5 files
     def __del__(self):
@@ -328,3 +346,4 @@ class MiniBUDEEvaluator(Evaluator):
         gt_avg = np.mean(gt_trials[start::])
         ap_avg = np.mean(approx_trials[start::])
         return gt_avg/ap_avg
+
