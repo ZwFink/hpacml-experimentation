@@ -235,8 +235,10 @@ class MiniBUDEEvaluator(Evaluator):
     def get_run_command(self):
         trial_num = self.get_trial_num(self.config['surrogate_model'])
         num_items = self.get_num_items_for_trial(trial_num)
+        start_index = int(self.config['comparison_args']['start_index'])
         cmd_args = self.get_data_gen_command(self.config['dataset_gen_command'],
-                                             num_items
+                                             num_items,
+                                             start_index
                                         )
         return ' '.join(cmd_args)
 
@@ -254,8 +256,9 @@ class MiniBUDEEvaluator(Evaluator):
         multiplier = int(my_row['multiplier'])
         return multiplier
 
-    def get_data_gen_command(self, args, num_items):
+    def get_data_gen_command(self, args, num_items, start_index):
         args += ['--ni', str(num_items)]
+        args += ['-s', str(start_index)]
         return args
 
     def process_raw_data(self, data_str, is_approx=False):
