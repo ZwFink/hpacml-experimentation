@@ -358,11 +358,13 @@ minibude:
         type: range
         bounds: 
         - 0.1
-        - 1.0
+        - 0.8
       - name: multiplier
-        type: range
-        bounds:
+        type: choice
+        values:
         - 32
+        - 64
+        - 128
         - 256
       - name: num_hidden_layers
         type: range
