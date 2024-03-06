@@ -388,7 +388,7 @@ minibude:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 70
+        value: 50
       - name: batch_size
         type: range
         bounds:
