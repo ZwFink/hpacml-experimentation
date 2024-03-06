@@ -5,6 +5,7 @@ import h5py
 import io
 import os
 import tempfile
+from pathlib import Path
 import glob
 import re
 
@@ -15,11 +16,18 @@ DEFAULT_EXACT_H5 = f'/tmp/hpac_db_exact_{os.getpid()}.h5'
 def RMSE(ground_truth, approx):
     return np.sqrt(np.mean((ground_truth - approx)**2))
 
+def MAPE(ground_truth, approx):
+    epsilon = 1e-8  # small constant to avoid division by zero
+    mape = np.mean(np.abs((ground_truth - approx) / (ground_truth + epsilon)))
+    return mape*100
+
 def get_loss_fn_from_str(loss_str):
     if loss_str == 'rmse':
         return RMSE
+    elif loss_str == 'mape':
+        return MAPE
     else:
-        raise ValueError('Unknown loss function')
+        raise ValueError(f'Unknown loss function: {loss_str}')
 
 class Evaluator:
     def __init__(self, benchmark, config):
@@ -30,8 +38,10 @@ class Evaluator:
     def get_evaluator_class(cls, benchmark):
         if benchmark == 'particlefilter':
             return ParticleFilterEvaluator
+        elif benchmark == 'minibude':
+            return MiniBUDEEvaluator
         else:
-            raise ValueError('Unknown benchmark')
+            raise ValueError(f'Unknown benchmark: {benchmark}')
 
     def run_and_compute_error(self):
         benchmark_dir = self.config['benchmark_location']
@@ -41,8 +51,10 @@ class Evaluator:
                 all_files = glob.glob(f'{benchmark_dir}/*')
                 [sh.cp('-r', f, tmpdirname) for f in all_files]
                 self.build_approx()
-                approx_out = self.run_approx(self.config['run_command'])
-                approx_processed = self.process_raw_data(approx_out)
+                approx_out = self.run_approx(self.get_run_command())
+                approx_processed = self.process_raw_data(approx_out,
+                                                         is_approx=True
+                                                         )
 
         with tempfile.TemporaryDirectory() as tmpdirname:
             with sh.pushd(tmpdirname):
@@ -50,20 +62,27 @@ class Evaluator:
                 all_files = glob.glob(f'{benchmark_dir}/*')
                 [sh.cp('-r', f, tmpdirname) for f in all_files]
                 self.build_exact()
-                exact_out = self.run_exact(self.config['run_command'])
-                exact_processed = self.process_raw_data(exact_out)
+                exact_out = self.run_exact(self.get_run_command())
+                exact_processed = self.process_raw_data(exact_out,
+                                                        is_approx=False
+                                                        )
 
         loss = self.config['comparison_args']['loss_fn']
         loss_fn = get_loss_fn_from_str(loss)
+        error = self.get_error(exact_processed,
+                               approx_processed,
+                               loss_fn
+                               )
+        print(f'The error is {error}')
         speedup = self.get_speedup(exact_processed, 
                                    approx_processed
                                    )
-        error = self.get_error(exact_processed,
-                              approx_processed,
-                              loss_fn
-                              )
+
 
         return self.combine_error_speedup(speedup, error)
+    
+    def get_run_command(self):
+        return self.config['run_command']
 
     def run_approx(self, run_command):
         # TODO: This is not from the config: need to get the number
@@ -71,16 +90,20 @@ class Evaluator:
         # because each run of this will have a different one
         os.environ['SURROGATE_MODEL'] = self.config['surrogate_model']
         os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5
+        os.environ['CAPTURE_OUTPUT'] = '1'
         return self.run(run_command)
 
     def run_exact(self, run_command):
         os.environ['HPAC_DB_FILE'] = DEFAULT_EXACT_H5
+        os.environ['CAPTURE_OUTPUT'] = '1'
         return self.run(run_command)
 
     def run(self, cmd_str):
         cmd = self.create_command(cmd_str)
         buf = io.StringIO()
         cmd(_out=buf)
+        buf.seek(0)
+        print(buf.read())
         buf.seek(0)
         return buf.read()
 
@@ -90,15 +113,22 @@ class Evaluator:
 
     def build_approx(self):
         sh.make('clean')
-        sh.make('-f', 'Makefile.approx')
+        sh.make('-f', 'Makefile.approx', 'CAPTURE_OUTPUT=1')
 
     def build_exact(self):
         sh.make('clean')
-        sh.make()
+        sh.make('CAPTURE_OUTPUT=1')
 
     def combine_error_speedup(self, speedup, error):
         raise NotImplementedError
 
+    # remove the approx and exact h5 files
+    # def __del__(self):
+    #     try:
+    #         os.remove(DEFAULT_APPROX_H5)
+    #         os.remove(DEFAULT_EXACT_H5)
+    #     except FileNotFoundError:
+    #         pass
 
 class ProcessedResultsWrapper:
     def __init__(self, speedup=None, error=None):
@@ -135,7 +165,7 @@ class ParticleFilterEvaluator(Evaluator):
         pfr = ParticleFilterProcessedResultsWrapper
         return pfr(speedup=speedup.speedup, error=error.error)
 
-    def process_raw_data(self, data_str):
+    def process_raw_data(self, data_str, is_approx=False):
         data = io.StringIO()
         my_re = re.compile('DATA:(\\S+)')
         # get all matches
@@ -175,3 +205,70 @@ class ParticleFilterEvaluator(Evaluator):
         approx_ot = pf_approx_results['offload_time'][1::]
         avg_speedup = exact_ot.mean()/approx_ot.mean()
         return ParticleFilterProcessedResultsWrapper(speedup=avg_speedup)
+
+
+class HDF5ResultsWrapper:
+    def __init__(self, filename, group_name):
+        self._result = h5py.File(filename, 'r')
+        self._result = self._result[group_name]['output']
+        print(f'The shape is {self._result.shape}')
+
+    @classmethod
+    def get_error(cls, ground_truth, approx, loss):
+        gt_result = ground_truth.result
+        approx_result = approx.result
+        return loss(gt_result, approx_result)
+
+    @property
+    def result(self):
+        return np.array(self._result)
+
+class MiniBUDEEvaluator(Evaluator):
+    def __init__(self, config):
+        super().__init__('minibude', config)
+
+    class MiniBUDEResultsWrapper(HDF5ResultsWrapper):
+        def __init__(self, filename, group_name, stdout):
+            super().__init__(filename, group_name)
+            self.stdout = stdout
+
+    def get_run_command(self):
+        trial_num = self.get_trial_num(self.config['surrogate_model'])
+        num_items = self.get_num_items_for_trial(trial_num)
+        cmd_args = self.get_data_gen_command(self.config['dataset_gen_command'],
+                                             num_items
+                                        )
+        return ' '.join(cmd_args)
+
+    def get_trial_num(self, model_path):
+        path = Path(model_path)
+        model_re = re.compile('model_(\d+)_\d+')
+        filename = path.stem
+        trial_num = model_re.match(filename).group(1)
+        return int(trial_num)
+
+    def get_num_items_for_trial(self, trial_num):
+        trials = self.config['all_trials_file']
+        df = pd.read_csv(trials, index_col='trial')
+        my_row = df.loc[trial_num]
+        multiplier = int(my_row['multiplier'])
+        return multiplier
+
+    def get_data_gen_command(self, args, num_items):
+        args += ['--ni', str(num_items)]
+        return args
+
+    def process_raw_data(self, data_str, is_approx=False):
+        rgn_name = self.config['comparison_args']['region_name']
+        if is_approx:
+            fname = DEFAULT_APPROX_H5
+        else:
+            fname = DEFAULT_EXACT_H5
+
+        return self.MiniBUDEResultsWrapper(fname,
+                                           rgn_name,
+                                           data_str
+                                           )
+
+    def get_error(self, ground_truth, approx, loss):
+        return HDF5ResultsWrapper.get_error(ground_truth, approx, loss)
