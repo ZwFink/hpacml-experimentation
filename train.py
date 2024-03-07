@@ -479,7 +479,8 @@ class ConfigurableNumHiddenLayersMiniBUDENeuralNetwork(nn.Module):
         dropout = params.get("dropout")
 
         n_pose_values = 6 * multiplier
-        n_input_features = n_pose_values + 21552
+        # n_input_features = n_pose_values + 21552
+        n_input_features = n_pose_values
         n_output_features = 1 * multiplier
 
         first_layer = nn.Linear(n_input_features, h1_features)
@@ -497,6 +498,7 @@ class ConfigurableNumHiddenLayersMiniBUDENeuralNetwork(nn.Module):
                     continue
                 next_layer = nn.Linear(prev_features, num_features)
                 nn_layers.append(next_layer)
+                nn_layers.append(nn.BatchNorm1d(num_features))
                 nn_layers.append(nn.PReLU())
                 nn_layers.append(nn.Dropout(dropout))
 

@@ -324,15 +324,15 @@ minibude:
       # (though we don't run them in parallel)
       train_test_dataset: '/tmp/bude_data_%s.h5'
       datagen_args:
-        benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE/'
+        benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE_testing/'
         dataset_gen_command:
           - 'bude'
           - '--deck'
-          - '/scratch/mzu/zanef2/miniBUDE_data/bm2'
+          - '/scratch/mzu/zanef2/miniBUDE_data/bm2_long'
           - '-i'
           - '1'
           - '-n'
-          - '2097152'
+          - '262144'
           - '--ni'
           - '4'
       load_entire: false
@@ -352,7 +352,7 @@ minibude:
         threshold: 10
       - name: inference_time
         type: minimize
-        threshold: 5000
+        threshold: 200
       parameter_space:
       - name: feature_multiplier
         type: range
@@ -362,23 +362,30 @@ minibude:
       - name: multiplier
         type: choice
         values:
+        - 1
+        - 4
+        - 8
         - 32
         - 64
-        - 128
-        - 256
       - name: num_hidden_layers
         type: range
         bounds:
         - 2
         - 8 
       - name: hidden_1_features
-        type: fixed
-        value: 22320
+        type: choice
+        values: 
+        - 64
+        - 128
+        - 256 
+        - 512 
+        - 1024
+        - 2048
       tracking_metrics:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 30
+      trials: 20
       parameter_space:
       - name: learning_rate
         type: range
@@ -388,7 +395,7 @@ minibude:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 50
+        value: 70
       - name: batch_size
         type: range
         bounds:
