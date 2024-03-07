@@ -25,19 +25,18 @@ miniweather:
     train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/miniweather_768_384.h5'
     output_models_directory: 'miniweather_output_models'
 minibude:
-  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_minibude/models'
-  run_command: './main -x 128 -y 128 -z 24 -np $((1<<12))'
-  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_minibude/models/model_2_18.pth'
-  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_minibude/trial_results.csv'
-  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE_testing/'
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/models'
+  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/models/model_0_13.pth'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/trial_results.csv'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE/'
   dataset_gen_command:
   - './bude'
   - '--deck'
-  - '/scratch/mzu/zanef2/miniBUDE_data/bm2'
+  - '/scratch/mzu/zanef2/miniBUDE_data/bm2_long'
   - '-i'
   - '1'
   - '-n'
-  - '2097152'
+  - '262144'
   # We run the benchmark in exact mode to compare against the approx outputs
   comparison_args:
     region_name: 'BUDEOutput'
