@@ -4,7 +4,7 @@ import yaml
 
 
 @click.command()
-@click.option('--benchmark', type=click.Choice(['particlefilter', 'minibude']))
+@click.option('--benchmark', type=click.Choice(['particlefilter', 'minibude', 'binomialoptions']))
 @click.option('--config', type=click.Path(exists=True))
 def main(benchmark, config):
     with open(config, 'r') as f:

@@ -14,13 +14,16 @@ import re
 DEFAULT_APPROX_H5 = f'/tmp/hpac_db_approx_{os.getpid()}.h5'
 DEFAULT_EXACT_H5 = f'/tmp/hpac_db_exact_{os.getpid()}.h5'
 
+
 def RMSE(ground_truth, approx):
     return np.sqrt(np.mean((ground_truth - approx)**2))
+
 
 def MAPE(ground_truth, approx):
     epsilon = 1e-8  # small constant to avoid division by zero
     mape = np.mean(np.abs((ground_truth - approx) / (ground_truth + epsilon)))
     return mape*100
+
 
 def get_loss_fn_from_str(loss_str):
     if loss_str == 'rmse':
@@ -29,6 +32,7 @@ def get_loss_fn_from_str(loss_str):
         return MAPE
     else:
         raise ValueError(f'Unknown loss function: {loss_str}')
+
 
 class Evaluator:
     def __init__(self, benchmark, config):
@@ -41,6 +45,8 @@ class Evaluator:
             return ParticleFilterEvaluator
         elif benchmark == 'minibude':
             return MiniBUDEEvaluator
+        elif benchmark == 'binomialoptions':
+            return BinomialOptionsEvaluator
         else:
             raise ValueError(f'Unknown benchmark: {benchmark}')
 
@@ -133,7 +139,7 @@ class Evaluator:
         apevents_df['mode'] = 'Approx'
 
         #combine them
-        combined = pd.concat([gtevent_df, apevents_df])
+        combined = pd.concat([gtevent_df, apevents_df], ignore_index=True)
         return combined
 
     # remove the approx and exact h5 files
@@ -246,16 +252,28 @@ class StringResultsWrapper:
     def str_result(self):
         return self._str_result
 
-    @classmethod
-    def get_speedup(cls, ground_truth, approx):
-        raise NotImplementedError
-
     @property
     def stdout(self):
         return self.str_result
 
+    @classmethod
+    def get_speedup(cls, ground_truth, approx):
+        gt_events = EventParser.parse_events_from_str(ground_truth.stdout)
+        approx_events = EventParser.parse_events_from_str(approx.stdout)
+        gt_trials = gt_events['Trial']
+        approx_trials = approx_events['Trial']
+        if len(gt_trials) != len(approx_trials):
+            raise ValueError('The number of trials in the ground truth and approx are not the same')
+        if len(gt_trials) == 1:
+            start = 0
+        else:
+            start = 1
+        gt_avg = np.mean(gt_trials[start::])
+        ap_avg = np.mean(approx_trials[start::])
+        return gt_avg/ap_avg
 
-class MiniBUDEResultsWrapper(HDF5ResultsWrapper, StringResultsWrapper):
+
+class HDF5AndStringResultsWrapper(HDF5ResultsWrapper, StringResultsWrapper):
     def __init__(self, filename, group_name, stdout):
         HDF5ResultsWrapper.__init__(self, filename, group_name)
         StringResultsWrapper.__init__(self, stdout)
@@ -263,6 +281,10 @@ class MiniBUDEResultsWrapper(HDF5ResultsWrapper, StringResultsWrapper):
     @classmethod
     def get_error(cls, ground_truth, approx, loss):
         return HDF5ResultsWrapper.get_error(ground_truth, approx, loss)
+
+    @classmethod
+    def get_speedup(cls, ground_truth, approx):
+        return StringResultsWrapper.get_speedup(ground_truth, approx)
 
 
 class EventParser:
@@ -272,12 +294,19 @@ class EventParser:
     @classmethod
     def parse_events_from_str(cls, stream):
         opt = defaultdict(list)
-        event_re = re.compile('EVENT (\S+): (\d+\.{0,1}\d*)ms')
+        event_re = re.compile(r'EVENT ([^:]+?): (\d+(?:\.\d+)?)ms?')
         matches = event_re.findall(stream)
         for match in matches:
             event = match[0]
             time = float(match[1])
             opt[event].append(time)
+        n_times = set([len(v) for v in opt.values()])
+        if len(n_times) > 1:
+            # remove the offender
+            offenders = [k for k, v in opt.items() if len(v) != max(n_times)]
+            for offender in offenders:
+                print(offender)
+                del opt[offender]
         return opt
 
 
@@ -321,29 +350,41 @@ class MiniBUDEEvaluator(Evaluator):
         else:
             fname = DEFAULT_EXACT_H5
 
-        return MiniBUDEResultsWrapper(fname,
-                                      rgn_name,
-                                      data_str
-                                      )
+        return HDF5AndStringResultsWrapper(fname,
+                                           rgn_name,
+                                           data_str
+                                           )
 
     def get_events(self, stdout):
         return EventParser.parse_events_from_str(stdout)
 
     def get_error(self, ground_truth, approx, loss):
-        return MiniBUDEResultsWrapper.get_error(ground_truth, approx, loss)
+        return HDF5AndStringResultsWrapper.get_error(ground_truth, approx, loss)
 
     def get_speedup(self, ground_truth, approx):
-        gt_events = self.get_events(ground_truth.stdout)
-        approx_events = self.get_events(approx.stdout)
-        gt_trials = gt_events['Trial']
-        approx_trials = approx_events['Trial']
-        if len(gt_trials) != len(approx_trials):
-            raise ValueError('The number of trials in the ground truth and approx are not the same')
-        if len(gt_trials) == 1:
-            start = 0
-        else:
-            start = 1
-        gt_avg = np.mean(gt_trials[start::])
-        ap_avg = np.mean(approx_trials[start::])
-        return gt_avg/ap_avg
+        return HDF5AndStringResultsWrapper.get_speedup(ground_truth, approx)
 
+
+class BinomialOptionsEvaluator(Evaluator):
+    def __init__(self, config):
+        super().__init__('binomialoptions', config)
+
+    def process_raw_data(self, data_str, is_approx=False):
+        rgn_name = self.config['comparison_args']['region_name']
+        if is_approx:
+            fname = DEFAULT_APPROX_H5
+        else:
+            fname = DEFAULT_EXACT_H5
+
+        return HDF5AndStringResultsWrapper(fname,
+                                           rgn_name,
+                                           data_str
+                                           )
+
+    def get_error(self, ground_truth, approx, loss):
+        return HDF5AndStringResultsWrapper.get_error(ground_truth,
+                                                     approx, loss
+                                                     )
+
+    def get_speedup(self, ground_truth, approx):
+        return HDF5AndStringResultsWrapper.get_speedup(ground_truth, approx)

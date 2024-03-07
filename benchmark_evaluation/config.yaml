@@ -34,7 +34,7 @@ minibude:
   - '--deck'
   - '/scratch/mzu/zanef2/miniBUDE_data/bm2_long'
   - '-i'
-  - '1'
+  - '20'
   - '-n'
   - '262144'
   # We run the benchmark in exact mode to compare against the approx outputs
@@ -42,3 +42,12 @@ minibude:
     region_name: 'BUDEOutput'
     start_index: 1048576
     loss_fn: mape
+binomialoptions:
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/models'
+  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/models/model_0_13.pth'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/trial_results.csv'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/binomialoptions-cuda/'
+  run_command: './binomial_options /scratch/mzu/zanef2/surrogates/training_data/random_input_16777216.bin 6194304 16777216 exact.out'
+  comparison_args:
+    region_name: 'BinomialOptionsOutput'
+    loss_fn: rmse
