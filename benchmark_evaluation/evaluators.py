@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 import glob
 import re
+import click
+import yaml
 
 
 DEFAULT_APPROX_H5 = f'/tmp/hpac_db_approx_{os.getpid()}.h5'
@@ -405,3 +407,29 @@ class BinomialOptionsEvaluator(Evaluator):
 
     def get_speedup(self, ground_truth, approx):
         return HDF5AndStringResultsWrapper.get_speedup(ground_truth, approx)
+
+
+@click.command()
+@click.option('--benchmark', help='The benchmark to evaluate')
+@click.option('--config', help='The configuration file')
+@click.option('--trial_num', help='Trial number')
+@click.option('--model_path', help='Path to the model')
+@click.option('--output', help='The output file')
+def main(benchmark, config, trial_num, model_path, output):
+    with open(config, 'r') as f:
+        config = yaml.safe_load(f)
+    benchmark_config = config[benchmark]
+
+    evaluator = Evaluator.get_evaluator_class(benchmark)(benchmark_config,
+                                                         model_path
+                                                         )
+    wrapped_result, events = evaluator.run_and_compute_speedup_and_error(get_events=True)
+    events['avg_speedup'] = wrapped_result.get_speedup()
+    events['error'] = wrapped_result.get_error()
+    events['error_metric'] = wrapped_result.get_error_metric()
+    events['Trial'] = trial_num
+
+    events.to_csv(output, index=False)
+
+if __name__ == '__main__':
+    main()
