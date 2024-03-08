@@ -35,9 +35,10 @@ def get_loss_fn_from_str(loss_str):
 
 
 class Evaluator:
-    def __init__(self, benchmark, config):
+    def __init__(self, benchmark, config, model_path):
         self.benchmark = benchmark
         self.config = config
+        self.model_path = model_path
 
     @classmethod
     def get_evaluator_class(cls, benchmark):
@@ -75,6 +76,7 @@ class Evaluator:
                                                         )
 
         loss = self.config['comparison_args']['loss_fn']
+        self.loss_fn_str = loss
         loss_fn = get_loss_fn_from_str(loss)
         error = self.get_error(exact_processed,
                                approx_processed,
@@ -87,8 +89,8 @@ class Evaluator:
             events = self.get_and_combine_events(exact_processed,
                                                  approx_processed
                                                  )
-            return self.combine_error_speedup(speedup, error), events
-        return self.combine_error_speedup(speedup, error)
+            return self.combine_error_speedup(speedup, error, self.loss_fn_str), events
+        return self.combine_error_speedup(speedup, error, self.loss_fn_str)
 
     def get_run_command(self):
         return self.config['run_command']
@@ -97,7 +99,7 @@ class Evaluator:
         # TODO: This is not from the config: need to get the number
         # from somewhere else
         # because each run of this will have a different one
-        os.environ['SURROGATE_MODEL'] = self.config['surrogate_model']
+        os.environ['SURROGATE_MODEL'] = self.model_path
         os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5
         os.environ['CAPTURE_OUTPUT'] = '1'
         return self.run(run_command)
@@ -111,6 +113,8 @@ class Evaluator:
         cmd = self.create_command(cmd_str)
         buf = io.StringIO()
         cmd(_out=buf)
+        buf.seek(0)
+        print(buf.read())
         buf.seek(0)
         return buf.read()
 
@@ -126,8 +130,11 @@ class Evaluator:
         sh.make('clean')
         sh.make('CAPTURE_OUTPUT=1')
 
-    def combine_error_speedup(self, speedup, error):
-        return ProcessedResultsWrapper(speedup=speedup, error=error)
+    def combine_error_speedup(self, speedup, error, loss_fn_str):
+        return ProcessedResultsWrapper(speedup=speedup,
+                                       error=error,
+                                       loss_fn=loss_fn_str
+                                       )
 
     def get_and_combine_events(self, ground_truth, approx):
         gtevents = EventParser.parse_events_from_str(ground_truth.stdout)
@@ -152,9 +159,10 @@ class Evaluator:
 
 
 class ProcessedResultsWrapper:
-    def __init__(self, speedup=None, error=None):
+    def __init__(self, speedup=None, error=None, loss_fn=None):
         self.speedup = speedup
         self.error = error
+        self.error_metric = loss_fn
 
     def __str__(self):
         return str(self.__dict__)
@@ -168,6 +176,9 @@ class ProcessedResultsWrapper:
     def get_speedup(self):
         return self.speedup
 
+    def get_error_metric(self):
+        return self.error_metric
+
 
 class ParticleFilterProcessedResultsWrapper(ProcessedResultsWrapper):
     def __init__(self, speedup=None, error=None):
@@ -175,16 +186,19 @@ class ParticleFilterProcessedResultsWrapper(ProcessedResultsWrapper):
 
 
 class ParticleFilterEvaluator(Evaluator):
-    def __init__(self, config):
-        super().__init__('particlefilter', config)
+    def __init__(self, config, model_path):
+        super().__init__('particlefilter', config, model_path)
 
     class ParticleFilterResultsWrapper:
         def __init__(self, df):
             self.result = df
 
     def combine_error_speedup(self, speedup, error):
-        pfr = ParticleFilterProcessedResultsWrapper
-        return pfr(speedup=speedup.speedup, error=error.error)
+        pfr = ProcessedResultsWrapper
+        return pfr(speedup=speedup.speedup,
+                   error=error.error,
+                   loss_fn=self.loss_fn_str
+                   )
 
     def process_raw_data(self, data_str, is_approx=False):
         data = io.StringIO()
@@ -213,9 +227,9 @@ class ParticleFilterEvaluator(Evaluator):
 
         pf_error = loss(ground_truth, pf_stacked)
         approx_error = loss(ground_truth, approx_stacked)
-        res = ParticleFilterProcessedResultsWrapper(error=(pf_error,
-                                                           approx_error)
-                                                    )
+        res = ProcessedResultsWrapper(error=(pf_error,
+                                             approx_error)
+                                      )
         return res
 
     def get_speedup(self, ground_truth, approx):
@@ -262,6 +276,8 @@ class StringResultsWrapper:
         approx_events = EventParser.parse_events_from_str(approx.stdout)
         gt_trials = gt_events['Trial']
         approx_trials = approx_events['Trial']
+        print(gt_trials)
+        print(approx_trials)
         if len(gt_trials) != len(approx_trials):
             raise ValueError('The number of trials in the ground truth and approx are not the same')
         if len(gt_trials) == 1:
@@ -301,9 +317,10 @@ class EventParser:
             time = float(match[1])
             opt[event].append(time)
         n_times = set([len(v) for v in opt.values()])
+        n_trials = len(opt['Trial'])
         if len(n_times) > 1:
             # remove the offender
-            offenders = [k for k, v in opt.items() if len(v) != max(n_times)]
+            offenders = [k for k, v in opt.items() if len(v) != n_trials]
             for offender in offenders:
                 print(offender)
                 del opt[offender]
@@ -311,11 +328,11 @@ class EventParser:
 
 
 class MiniBUDEEvaluator(Evaluator):
-    def __init__(self, config):
-        super().__init__('minibude', config)
+    def __init__(self, config, model_path):
+        super().__init__('minibude', config, model_path)
 
     def get_run_command(self):
-        trial_num = self.get_trial_num(self.config['surrogate_model'])
+        trial_num = self.get_trial_num(self.model_path)
         num_items = self.get_num_items_for_trial(trial_num)
         start_index = int(self.config['comparison_args']['start_index'])
         cmd_args = self.get_data_gen_command(self.config['dataset_gen_command'],
@@ -366,8 +383,8 @@ class MiniBUDEEvaluator(Evaluator):
 
 
 class BinomialOptionsEvaluator(Evaluator):
-    def __init__(self, config):
-        super().__init__('binomialoptions', config)
+    def __init__(self, config, model_path):
+        super().__init__('binomialoptions', config, model_path)
 
     def process_raw_data(self, data_str, is_approx=False):
         rgn_name = self.config['comparison_args']['region_name']
