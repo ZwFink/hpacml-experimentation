@@ -682,6 +682,11 @@ def infer_loop(model, dataloader, trials, writer=None):
       writer.add_scalar('inference time', average_time*1000, 0)
     return model, mean, sem
 
+def get_num_params(net):
+    model_parameters = filter(lambda p: p.requires_grad, net.parameters())
+    params = sum([np.prod(p.size()) for p in model_parameters])
+    return int(params.item())
+
 def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper, arch_params, hyper_params):
     learning_rate = hyper_params.get("learning_rate")
     epochs = hyper_params.get("epochs")
@@ -693,6 +698,7 @@ def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper,
 
     model = nn_class(arch_params).to(DATATYPE).to(device)
     model.calculate_and_save_normalization_parameters(train_dl)
+    n_params = get_num_params(model)
 
     print(model)
     writer = None
@@ -741,7 +747,7 @@ def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper,
     infer_end = time.time()
     print(f"Inference time: {(infer_end - infer_start)}")
     # YAML doesn't know how to handle tuples, so we return a list
-    return model_best, best_user_test_loss, [infer_time, infer_sem]
+    return n_params, model_best, best_user_test_loss, [infer_time, infer_sem]
 
 
 class BenchmarkSpecifier:
@@ -1036,12 +1042,13 @@ def main(name, config, architecture_config, output, model_path):
     early_stopper = EarlyStopper(early_stop_parms['patience'], 
                                  early_stop_parms['min_delta_percent'])
     user_loss = BenchSpec.get_error_reporting_fn()
-    best_model, test_loss, runtime = train_test_infer_loop(nn, user_loss,
+    n_params, best_model, test_loss, runtime = train_test_infer_loop(nn, user_loss,
                                                train_dl, test_dl,
                                                early_stopper, arch_params,
                                                hyper_params
                                                )
     results = {"average_mse": test_loss, 'inference_time': runtime}
+    results['n_params'] = n_params
     print(results)
     with open(output, 'w') as f:
         yaml.dump(results, f)

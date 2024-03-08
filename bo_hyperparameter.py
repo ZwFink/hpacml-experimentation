@@ -154,6 +154,8 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
     trial_to_runtime_sem = dict()
     trial_to_model = dict()
     trial_to_n_params = dict()
+    n_success = 0
+    n_failures = 0
 
     for i in range(0, TRIALS_HYPERPARMS, max_parallelism):
         job_futures = list()
@@ -180,9 +182,17 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
             result['inference_time'] = tuple(result['inference_time'])
             trial_to_runtime_sem[trial_index] = result['inference_time'][1]
             trial_to_n_params[trial_index] = n_params
-            process_result(trial_index, result, 
-                           ax_client_hyperparams, trial_to_model[trial_index]
-                           )
+            was_success = process_result(trial_index, result,
+                                         ax_client_hyperparams,
+                                         trial_to_model[trial_index]
+                                         )
+            if was_success:
+                n_success += 1
+            else:
+                n_failures += 1
+
+    if n_success == 0:
+        raise TrialFailureException("No successful trials")
 
     best_index, best_parameters, results = ax_client_hyperparams.get_best_trial(use_model_predictions=False)
 
@@ -197,6 +207,7 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
             except FileNotFoundError:
                 print(f'The model {model_name} was not found?')
                 pass
+
     best_parameters = (best_parameters, results)
     best_sem = trial_to_runtime_sem[best_index]
     best_n_params = trial_to_n_params[best_index]
@@ -219,8 +230,8 @@ def process_result(trial_index, result, ax_client_hyperparams, model_path):
             os.remove(model_path)
         except FileNotFoundError:
             print(f'The model {model_path} was not found?')
-            pass
-        raise TrialFailureException()
+        finally:
+            return False
     else:
         ax_client_hyperparams.complete_trial(trial_index=trial_index,
                                              raw_data=result
@@ -232,6 +243,7 @@ def process_result(trial_index, result, ax_client_hyperparams, model_path):
             except FileNotFoundError:
                 print(f'The model {model_path} was not found?')
                 pass
+        return True
 
 
 @click.command()
@@ -262,7 +274,7 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir, mod
         parallelism=1,
         exclusive=False,
         mem_per_node=70,
-        walltime="1:30:00",
+        walltime="1:55:00",
         cmd_timeout=500,
         launcher=SingleNodeLauncher()
     )
@@ -324,6 +336,7 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir, mod
         output_values['success'] = True
     except TrialFailureException:
         output_values['success'] = False
+        eval_results = {}, {}, {}
     data_objectives, data_hyper, data_arch = eval_results
     trial_results = dict()
     trial_results['objectives'] = data_objectives
