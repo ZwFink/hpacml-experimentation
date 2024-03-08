@@ -57,7 +57,7 @@ particlefilter:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 500
+        value: 300
       - name: batch_size
         type: fixed
         value: 32
@@ -332,7 +332,7 @@ minibude:
           - '-i'
           - '1'
           - '-n'
-          - '262144'
+          - '1048576'
           - '--ni'
           - '4'
       load_entire: false
@@ -349,7 +349,7 @@ minibude:
       objectives:
       - name: average_mse
         type: minimize
-        threshold: 10
+        threshold: 5
       - name: inference_time
         type: minimize
         threshold: 200
@@ -371,7 +371,7 @@ minibude:
         type: range
         bounds:
         - 2
-        - 8 
+        - 12 
       - name: hidden_1_features
         type: choice
         values: 
@@ -381,11 +381,12 @@ minibude:
         - 512 
         - 1024
         - 2048
+        - 4096
       tracking_metrics:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 20
+      trials: 25
       parameter_space:
       - name: learning_rate
         type: range
@@ -409,7 +410,7 @@ minibude:
       - name: weight_decay
         type: range
         bounds:
-        - 0.0001
+        - 0.00001
         - 0.1
         log_scale: true
       objectives:

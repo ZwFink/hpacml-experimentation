@@ -109,14 +109,18 @@ def evaluate_hyperparameters(config_filename, arch_parameters,
     except Exception as e:
         print("Error running command")
         print(e)
-        return trial_index, {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}
+        return trial_index, {"average_mse": (1e9, 0), 'inference_time': (1e9, 0)}, 0
 
     with open(output_config_tmp.name, 'r') as f:
         results = yaml.safe_load(f)
 
     error, inference_time = results['average_mse'], results['inference_time']
+    n_params = results['n_params']
     # inference_time is a list [inference_time, sem]
-    return trial_index, {"average_mse": (error, 0), 'inference_time': inference_time}
+    return (trial_index, {"average_mse": (error, 0),
+                          'inference_time': inference_time},
+            n_params
+            )
 
 
 def submit_parallel_trial(parameters_hyperparams, trial_index, model_path, eval_args):
@@ -142,7 +146,6 @@ def submit_parallel_trial(parameters_hyperparams, trial_index, model_path, eval_
     )
     return results
 
-
 def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
     ax_client_hyperparams = ax_client
 
@@ -150,6 +153,7 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
     print("Max parallelism:", ax_client_hyperparams.get_max_parallelism())
     trial_to_runtime_sem = dict()
     trial_to_model = dict()
+    trial_to_n_params = dict()
 
     for i in range(0, TRIALS_HYPERPARMS, max_parallelism):
         job_futures = list()
@@ -171,10 +175,11 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
         tend = time.time()
         print(f'Finished running trials {i} to {i + max_parallelism} in {tend - tst} seconds')
         for res in results:
-            trial_index, result = res
+            trial_index, result, n_params = res
             print(f'Result for trial {trial_index}: {result}')
             result['inference_time'] = tuple(result['inference_time'])
             trial_to_runtime_sem[trial_index] = result['inference_time'][1]
+            trial_to_n_params[trial_index] = n_params
             process_result(trial_index, result, 
                            ax_client_hyperparams, trial_to_model[trial_index]
                            )
@@ -194,6 +199,7 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
                 pass
     best_parameters = (best_parameters, results)
     best_sem = trial_to_runtime_sem[best_index]
+    best_n_params = trial_to_n_params[best_index]
     print(best_parameters)
     error = best_parameters[1][0]['average_mse']
     inference_time = best_parameters[1][0]['inference_time']
@@ -202,7 +208,7 @@ def evaluate_architecture(ax_client, arch_trial_index, model_dir, eval_args):
     result_data = {"average_mse": [error, 0], 'inference_time': [inference_time, best_sem]}
     data = {"average_mse": [error, 0], 'inference_time': [inference_time, best_sem], 'learning_rate': [best_hypers['learning_rate'], 0],
     'weight_decay': [best_hypers['weight_decay'], 0], 'epochs': [best_hypers['epochs'], 0], 'batch_size': [best_hypers['batch_size'], 0],
-    'dropout': [best_hypers['dropout'], 0]}
+    'dropout': [best_hypers['dropout'], 0], 'num_params': [best_n_params, 0]}
     return result_data, data, eval_args.arch_parameters
 
 
@@ -256,7 +262,7 @@ def main(config, trial_index, architecture, benchmark, output, parsl_rundir, mod
         parallelism=1,
         exclusive=False,
         mem_per_node=70,
-        walltime="2:45:00",
+        walltime="1:30:00",
         cmd_timeout=500,
         launcher=SingleNodeLauncher()
     )
