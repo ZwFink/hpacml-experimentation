@@ -57,7 +57,7 @@ particlefilter:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 300
+        value: 500
       - name: batch_size
         type: fixed
         value: 32
@@ -324,7 +324,7 @@ minibude:
       # (though we don't run them in parallel)
       train_test_dataset: '/tmp/bude_data_%s.h5'
       datagen_args:
-        benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE_testing/'
+        benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE/'
         dataset_gen_command:
           - 'bude'
           - '--deck'
