@@ -118,6 +118,7 @@ class MiniWeatherNeuralNetwork(nn.Module):
         dropout = network_params.get("dropout")
         activ_fn_name = network_params.get("activation_function")
         conv2_kernel_size = network_params.get("conv2_kernel_size")
+        use_batchnorm = network_params.get("batchnorm")
 
         if activ_fn_name == "relu":
             self.activ_fn = nn.ReLU()
@@ -131,6 +132,11 @@ class MiniWeatherNeuralNetwork(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
         if conv2_kernel_size != 0:
+            if use_batchnorm:
+                bn = [nn.BatchNorm2d(conv1_out_channels)]
+            else:
+                bn = []
+
             self.conv1 = nn.Conv2d(in_channels=4,
                                    out_channels=conv1_out_channels,
                                    kernel_size=(c1ks, c1ks), stride=(c1s, c1s),
@@ -143,20 +149,24 @@ class MiniWeatherNeuralNetwork(nn.Module):
                                                 conv2_kernel_size),
                                    stride=(1, 1), padding='same'
                                    )
-            self.fp = nn.Sequential(self.conv1, nn.BatchNorm2d(conv1_out_channels), 
-                                    self.activ_fn, 
-                                    self.dropout, self.conv2, nn.BatchNorm2d(4),
+            self.fp = nn.Sequential(*[self.conv1, *bn,
+                                    self.activ_fn,
+                                    self.dropout, self.conv2, *bn,
                                     self.activ_fn
-                                    )
+                                    ])
         else:
+            if use_batchnorm:
+                bn = [nn.BatchNorm2d(4)]
+            else:
+                bn = []
             # Here, we ignore Conv1 out channels
-            self.conv1 = nn.Conv2d(in_channels=4, out_channels=4, 
-                                   kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
+            self.conv1 = nn.Conv2d(in_channels=4, out_channels=4,
+                                   kernel_size=(c1ks, c1ks), stride=(c1s, c1s),
                                    padding='same'
                                    )
-            self.fp = nn.Sequential(self.conv1, nn.BatchNorm2d(4), 
+            self.fp = nn.Sequential(*[self.conv1, *bn,
                                     self.activ_fn, self.dropout
-                                    )
+                                ])
 
         self.register_buffer('min', torch.full((4, 1), torch.inf))
         self.register_buffer('max', torch.full((4, 1), -torch.inf))
