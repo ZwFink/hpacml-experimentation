@@ -179,11 +179,16 @@ binomial_options:
         type: minimize
       - name: inference_time
         type: minimize
+        threshold: 4
       parameter_space:
       - name: multiplier
-        type: range
-        bounds: 
+        type: choice
+        values: 
         - 1
+        - 2
+        - 4
+        - 8
+        - 16
         - 32
       - name: hidden1_features
         type: range
@@ -262,11 +267,16 @@ bonds:
         type: minimize
       - name: inference_time
         type: minimize
+        threshold: 8
       parameter_space:
       - name: multiplier
-        type: range
-        bounds: 
+        type: choice
+        values: 
         - 1
+        - 2
+        - 4
+        - 8
+        - 16
         - 32
       - name: hidden1_features
         type: range
