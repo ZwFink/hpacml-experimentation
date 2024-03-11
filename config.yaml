@@ -114,6 +114,11 @@ miniweather:
         bounds:
         - 0
         - 6
+      - name: batchnorm
+        type: choice
+        values:
+        - 0
+        - 1
       - name: activation_function
         type: fixed
         value: leaky_relu
