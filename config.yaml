@@ -242,7 +242,7 @@ bonds:
       # We have so much data for this one,
       # performance is affected a lot by 
       # the amount of test data
-      test_split: 0.95
+      test_split: 0.93
       # Admittedly, this is awkward.
       # We don't want to use our entire 'test set'
       # (non training set) for validation, but we
