@@ -97,6 +97,9 @@ class Evaluator:
     def get_run_command(self):
         return self.config['run_command']
 
+    def get_error_column(self):
+        return ['error']
+
     def run_approx(self, run_command):
         # TODO: This is not from the config: need to get the number
         # from somewhere else
@@ -192,14 +195,15 @@ class ParticleFilterEvaluator(Evaluator):
         super().__init__('particlefilter', config, model_path)
 
     class ParticleFilterResultsWrapper:
-        def __init__(self, df):
+        def __init__(self, df, stdout):
             self.result = df
+            self.stdout = stdout
 
-    def combine_error_speedup(self, speedup, error):
+    def combine_error_speedup(self, speedup, error, loss_fn_str):
         pfr = ProcessedResultsWrapper
         return pfr(speedup=speedup.speedup,
                    error=error.error,
-                   loss_fn=self.loss_fn_str
+                   loss_fn=loss_fn_str
                    )
 
     def process_raw_data(self, data_str, is_approx=False):
@@ -211,7 +215,10 @@ class ParticleFilterEvaluator(Evaluator):
             data.write(match + '\n')
         data.seek(0)
         df = pd.read_csv(data, index_col='count')
-        return self.ParticleFilterResultsWrapper(df)
+        return self.ParticleFilterResultsWrapper(df, data_str)
+
+    def get_error_column(self):
+        return ['pf_approx_error', 'error']
 
     def get_error(self, ground_truth, approx, loss):
         pf_exact_results = ground_truth.result
@@ -425,7 +432,7 @@ def main(benchmark, config, trial_num, model_path, output):
                                                          )
     wrapped_result, events = evaluator.run_and_compute_speedup_and_error(get_events=True)
     events['avg_speedup'] = wrapped_result.get_speedup()
-    events['error'] = wrapped_result.get_error()
+    events[evaluator.get_error_column()] = wrapped_result.get_error()
     events['error_metric'] = wrapped_result.get_error_metric()
     events['Trial'] = trial_num
 

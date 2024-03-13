@@ -17,7 +17,10 @@ from parsl.executors import HighThroughputExecutor
 
 
 @bash_app
-def evaluate(benchmark, config_file, trial_num, outputs=()):
+def evaluate(benchmark, config_file, trial_num, outputs=(),
+             stdout=parsl.AUTO_LOGNAME,
+             stderr=parsl.AUTO_LOGNAME
+             ):
     import yaml
     import re
     import os
@@ -48,6 +51,7 @@ def evaluate(benchmark, config_file, trial_num, outputs=()):
            ]
 
     print(cmd)
+    print(f'Running trial {trial_num} for {benchmark} benchmark')
     return ' '.join(cmd)
 
 
@@ -69,7 +73,7 @@ def get_parsl_config(is_local, parsl_rundir):
         parallelism=1,
         exclusive=True,
         mem_per_node=70,
-        walltime="0:20:00",
+        walltime="0:35:00",
         cmd_timeout=500,
         launcher=SingleNodeLauncher()
     )
@@ -128,6 +132,7 @@ def main(benchmark, config, output, local):
 
     for trial_results in results:
         result_file = trial_results.outputs[0].result()
+        print(f'Completed trial {trial_results}')
         trial_results = pd.read_csv(result_file)
         all_trials_df = pd.concat([all_trials_df, trial_results],
                                   ignore_index=True
