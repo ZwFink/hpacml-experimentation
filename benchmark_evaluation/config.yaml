@@ -1,19 +1,17 @@
 ---
 particlefilter:
-  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_particlefilter/models'
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-09_particlefilter/models'
   benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/particlefilter-cuda/'
-  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_particlefilter/trial_results.csv'
-  run_command: './main -x 128 -y 128 -z 24 -np $((1<<12))'
-  # TODO: This will go away and we use Parsl to run the benchmarks for every surrogate in the directory
-  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-05_particlefilter/models/model_13_4.pth'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-09_particlefilter/trial_results.csv'
+  run_command: './main -x 128 -y 128 -z 24 -np 4096'
   # We run the benchmark in exact mode to compare against the approx outputs
   comparison_args:
     region_name: 'particlefilter'
     loss_fn: rmse
 miniweather:
   train_args:
-    pareto_frontier_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-02-28_miniweather/pareto_parameters.json'
-    all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-02-28_miniweather/trial_results.csv'
+    pareto_frontier_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/pareto_parameters.json'
+    all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/trial_results.csv'
     pareto_only: false
     epochs: 500
     early_stop_args:
@@ -43,7 +41,6 @@ minibude:
     loss_fn: mape
 binomialoptions:
   models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/models'
-  surrogate_model: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/models/model_0_13.pth'
   all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-07_minibude/trial_results.csv'
   benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/binomialoptions-cuda/'
   run_command: './binomial_options /scratch/mzu/zanef2/surrogates/training_data/random_input_16777216.bin 6194304 16777216 exact.out'
