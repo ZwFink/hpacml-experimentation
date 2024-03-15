@@ -331,19 +331,9 @@ class ParticleFilterEvaluator(Evaluator):
     def get_speedup(self, ground_truth, approx):
         return StringResultsWrapper.get_speedup(ground_truth, approx)
 
-class MiniBUDEEvaluator(Evaluator):
-    def __init__(self, config, model_path):
-        super().__init__('minibude', config, model_path)
-
-    def get_run_command(self):
-        trial_num = self.get_trial_num(self.model_path)
-        num_items = self.get_num_items_for_trial(trial_num)
-        start_index = int(self.config['comparison_args']['start_index'])
-        cmd_args = self.get_data_gen_command(self.config['dataset_gen_command'],
-                                             num_items,
-                                             start_index
-                                        )
-        return ' '.join(cmd_args)
+class EvaluatorWithMultiplier(Evaluator):
+    def __init__(self, benchmark, config, model_path):
+        super().__init__(benchmark, config, model_path)
 
     def get_trial_num(self, model_path):
         path = Path(model_path)
@@ -358,6 +348,25 @@ class MiniBUDEEvaluator(Evaluator):
         my_row = df.loc[trial_num]
         multiplier = int(my_row['multiplier'])
         return multiplier
+
+    def get_multiplier(self, model_path):
+        trial_num = self.get_trial_num(model_path)
+        return self.get_num_items_for_trial(trial_num)
+
+
+class MiniBUDEEvaluator(EvaluatorWithMultiplier):
+    def __init__(self, config, model_path):
+        super().__init__('minibude', config, model_path)
+
+    def get_run_command(self):
+        trial_num = self.get_trial_num(self.model_path)
+        num_items = self.get_num_items_for_trial(trial_num)
+        start_index = int(self.config['comparison_args']['start_index'])
+        cmd_args = self.get_data_gen_command(self.config['dataset_gen_command'],
+                                             num_items,
+                                             start_index
+                                        )
+        return ' '.join(cmd_args)
 
     def get_data_gen_command(self, args, num_items, start_index):
         args += ['--ni', str(num_items)]
@@ -386,7 +395,7 @@ class MiniBUDEEvaluator(Evaluator):
         return HDF5AndStringResultsWrapper.get_speedup(ground_truth, approx)
 
 
-class BinomialOptionsEvaluator(Evaluator):
+class BinomialOptionsEvaluator(EvaluatorWithMultiplier):
     def __init__(self, config, model_path):
         super().__init__('binomialoptions', config, model_path)
 
@@ -409,6 +418,11 @@ class BinomialOptionsEvaluator(Evaluator):
 
     def get_speedup(self, ground_truth, approx):
         return HDF5AndStringResultsWrapper.get_speedup(ground_truth, approx)
+
+    def get_run_command(self):
+        rc_base = self.config['run_command']
+        mult = self.get_multiplier(self.model_path)
+        return rc_base + ' ' + str(mult)
 
 
 @click.command()
