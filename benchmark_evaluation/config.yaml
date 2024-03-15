@@ -40,8 +40,8 @@ minibude:
     start_index: 1048576
     loss_fn: mape
 binomialoptions:
-  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-12_binomialoptions/models'
-  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-12_binomialoptions/trial_results.csv'
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-12_binomial_options/models'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-12_binomial_options/trial_results.csv'
   benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/binomialoptions-cuda/'
   run_command: './binomial_options /scratch/mzu/zanef2/surrogates/training_data/random_input_16777216.bin 6194304 16777216 exact.out'
   comparison_args:
