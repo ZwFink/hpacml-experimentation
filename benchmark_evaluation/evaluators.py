@@ -185,70 +185,6 @@ class ProcessedResultsWrapper:
         return self.error_metric
 
 
-class ParticleFilterProcessedResultsWrapper(ProcessedResultsWrapper):
-    def __init__(self, speedup=None, error=None):
-        super().__init__(speedup, error)
-
-
-class ParticleFilterEvaluator(Evaluator):
-    def __init__(self, config, model_path):
-        super().__init__('particlefilter', config, model_path)
-
-    class ParticleFilterResultsWrapper:
-        def __init__(self, df, stdout):
-            self.result = df
-            self.stdout = stdout
-
-    def combine_error_speedup(self, speedup, error, loss_fn_str):
-        pfr = ProcessedResultsWrapper
-        return pfr(speedup=speedup.speedup,
-                   error=error.error,
-                   loss_fn=loss_fn_str
-                   )
-
-    def process_raw_data(self, data_str, is_approx=False):
-        data = io.StringIO()
-        my_re = re.compile('DATA:(\\S+)')
-        # get all matches
-        matches = my_re.findall(data_str)
-        for match in matches:
-            data.write(match + '\n')
-        data.seek(0)
-        df = pd.read_csv(data, index_col='count')
-        return self.ParticleFilterResultsWrapper(df, data_str)
-
-    def get_error_column(self):
-        return ['pf_approx_error', 'error']
-
-    def get_error(self, ground_truth, approx, loss):
-        pf_exact_results = ground_truth.result
-        pf_approx_results = approx.result
-        # get the column 'x0' and 'y0' from the exact results
-        x0, y0 = pf_approx_results['x0'], pf_approx_results['y0']
-        pf_approx_xe = pf_exact_results['xe']
-        pf_approx_ye = pf_exact_results['ye']
-        approx_xe, approx_ye = pf_approx_results['xe'], pf_approx_results['ye']
-
-        # combine x0, y0 into [x0, y0]
-        ground_truth = np.array([x0, y0]).T
-        pf_stacked = np.array([pf_approx_xe, pf_approx_ye]).T
-        approx_stacked = np.array([approx_xe, approx_ye]).T
-
-        pf_error = loss(ground_truth, pf_stacked)
-        approx_error = loss(ground_truth, approx_stacked)
-        res = ProcessedResultsWrapper(error=(pf_error,
-                                             approx_error)
-                                      )
-        return res
-
-    def get_speedup(self, ground_truth, approx):
-        pf_exact_results = ground_truth.result
-        pf_approx_results = approx.result
-
-        exact_ot = pf_exact_results['offload_time'][1::]
-        approx_ot = pf_approx_results['offload_time'][1::]
-        avg_speedup = exact_ot.mean()/approx_ot.mean()
-        return ParticleFilterProcessedResultsWrapper(speedup=avg_speedup)
 
 
 class HDF5ResultsWrapper:
@@ -292,7 +228,7 @@ class StringResultsWrapper:
         if len(gt_trials) == 1:
             start = 0
         else:
-            start = 1
+            start = 2
         gt_avg = np.mean(gt_trials[start::])
         ap_avg = np.mean(approx_trials[start::])
         return gt_avg/ap_avg
@@ -335,6 +271,65 @@ class EventParser:
                 del opt[offender]
         return opt
 
+
+class ParticleFilterProcessedResultsWrapper(ProcessedResultsWrapper):
+    def __init__(self, speedup=None, error=None):
+        super().__init__(speedup, error)
+
+
+class ParticleFilterEvaluator(Evaluator):
+    def __init__(self, config, model_path):
+        super().__init__('particlefilter', config, model_path)
+
+    class ParticleFilterResultsWrapper:
+        def __init__(self, df, stdout):
+            self.result = df
+            self.stdout = stdout
+
+    def combine_error_speedup(self, speedup, error, loss_fn_str):
+        pfr = ProcessedResultsWrapper
+        return pfr(speedup=speedup,
+                   error=error.error,
+                   loss_fn=loss_fn_str
+                   )
+
+    def process_raw_data(self, data_str, is_approx=False):
+        data = io.StringIO()
+        my_re = re.compile('DATA:(\\S+)')
+        # get all matches
+        matches = my_re.findall(data_str)
+        for match in matches:
+            data.write(match + '\n')
+        data.seek(0)
+        df = pd.read_csv(data, index_col='count')
+        return self.ParticleFilterResultsWrapper(df, data_str)
+
+    def get_error_column(self):
+        return ['pf_approx_error', 'error']
+
+    def get_error(self, ground_truth, approx, loss):
+        pf_exact_results = ground_truth.result
+        pf_approx_results = approx.result
+        # get the column 'x0' and 'y0' from the exact results
+        x0, y0 = pf_approx_results['x0'], pf_approx_results['y0']
+        pf_approx_xe = pf_exact_results['xe']
+        pf_approx_ye = pf_exact_results['ye']
+        approx_xe, approx_ye = pf_approx_results['xe'], pf_approx_results['ye']
+
+        # combine x0, y0 into [x0, y0]
+        ground_truth = np.array([x0, y0]).T
+        pf_stacked = np.array([pf_approx_xe, pf_approx_ye]).T
+        approx_stacked = np.array([approx_xe, approx_ye]).T
+
+        pf_error = loss(ground_truth, pf_stacked)
+        approx_error = loss(ground_truth, approx_stacked)
+        res = ProcessedResultsWrapper(error=(pf_error,
+                                             approx_error)
+                                      )
+        return res
+
+    def get_speedup(self, ground_truth, approx):
+        return StringResultsWrapper.get_speedup(ground_truth, approx)
 
 class MiniBUDEEvaluator(Evaluator):
     def __init__(self, config, model_path):
@@ -434,7 +429,7 @@ def main(benchmark, config, trial_num, model_path, output):
     events['avg_speedup'] = wrapped_result.get_speedup()
     events[evaluator.get_error_column()] = wrapped_result.get_error()
     events['error_metric'] = wrapped_result.get_error_metric()
-    events['Trial'] = trial_num
+    events['Architecture'] = trial_num
 
     events.to_csv(output, index=False)
 
