@@ -14,6 +14,7 @@ from parsl.providers import SlurmProvider
 from parsl.providers import LocalProvider
 from parsl.launchers import SingleNodeLauncher
 from parsl.executors import HighThroughputExecutor
+import random
 
 
 @bash_app
@@ -122,7 +123,9 @@ def main(benchmark, config, output, local):
     all_trials_df = pd.DataFrame()
 
     results = list()
-    for trial_num in trials_df.index:
+    trials_todo = list(trials_df.index)
+    random.shuffle(trials_todo)
+    for trial_num in trials_todo:
         output_file = f'{output}_{benchmark}_{trial_num}.csv'
         parsl_output = ParslFile(output_file)
         trial_results = evaluate(benchmark, config_file,
