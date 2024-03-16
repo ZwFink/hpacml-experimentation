@@ -169,7 +169,7 @@ binomial_options:
       # We have so much data for this one,
       # performance is affected a lot by 
       # the amount of test data
-      test_split: 0.97
+      test_split: 0.93
       max_test_batches: 8000
     early_stop_args:
       patience: 5
@@ -184,27 +184,22 @@ binomial_options:
         type: minimize
       - name: inference_time
         type: minimize
-        threshold: 4
+        threshold: 1
       parameter_space:
       - name: multiplier
-        type: choice
-        values: 
+        type: fixed
+        value: 
         - 1
-        - 2
-        - 4
-        - 8
-        - 16
-        - 32
       - name: hidden1_features
         type: range
         bounds:
         - 5
-        - 32
+        - 512
       - name: hidden2_features
         type: range
         bounds:
         - 0
-        - 32
+        - 512
       tracking_metrics:
       - average_mse
       - inference_time
