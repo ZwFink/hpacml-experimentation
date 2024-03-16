@@ -659,7 +659,7 @@ def infer_loop(model, dataloader, trials, writer=None):
         with torch.jit.optimized_execution(True):
             model = model.to(DATATYPE)
             model.eval()
-            traced_script_module = torch.jit.trace(model, X)
+            traced_script_module = torch.jit.trace(model, X[0:10])
             model = traced_script_module
             model = torch.jit.freeze(model)
         model = model.to(DATATYPE)
