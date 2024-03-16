@@ -50,6 +50,8 @@ class Evaluator:
             return MiniBUDEEvaluator
         elif benchmark == 'binomialoptions':
             return BinomialOptionsEvaluator
+        elif benchmark == 'bonds':
+            return BondsEvaluator
         else:
             raise ValueError(f'Unknown benchmark: {benchmark}')
 
@@ -117,7 +119,13 @@ class Evaluator:
     def run(self, cmd_str):
         cmd = self.create_command(cmd_str)
         buf = io.StringIO()
-        cmd(_out=buf)
+        try:
+            cmd(_out=buf)
+        except sh.ErrorReturnCode as e:
+            print(e)
+            print(e.stderr)
+            print(e.stdout)
+            raise e
         buf.seek(0)
         print(buf.read())
         buf.seek(0)
@@ -183,8 +191,6 @@ class ProcessedResultsWrapper:
 
     def get_error_metric(self):
         return self.error_metric
-
-
 
 
 class HDF5ResultsWrapper:
@@ -331,6 +337,7 @@ class ParticleFilterEvaluator(Evaluator):
     def get_speedup(self, ground_truth, approx):
         return StringResultsWrapper.get_speedup(ground_truth, approx)
 
+
 class EvaluatorWithMultiplier(Evaluator):
     def __init__(self, benchmark, config, model_path):
         super().__init__(benchmark, config, model_path)
@@ -423,6 +430,37 @@ class BinomialOptionsEvaluator(EvaluatorWithMultiplier):
         rc_base = self.config['run_command']
         mult = self.get_multiplier(self.model_path)
         return rc_base + ' ' + str(mult)
+
+
+class BondsEvaluator(EvaluatorWithMultiplier):
+    def __init__(self, config, model_path):
+        super().__init__('bonds', config, model_path)
+
+    def process_raw_data(self, data_str, is_approx=False):
+        rgn_name = self.config['comparison_args']['region_name']
+        if is_approx:
+            fname = DEFAULT_APPROX_H5
+        else:
+            fname = DEFAULT_EXACT_H5
+
+        return HDF5AndStringResultsWrapper(fname,
+                                           rgn_name,
+                                           data_str
+                                           )
+
+    def get_error(self, ground_truth, approx, loss):
+        return HDF5AndStringResultsWrapper.get_error(ground_truth,
+                                                     approx, loss
+                                                     )
+
+    def get_speedup(self, ground_truth, approx):
+        return HDF5AndStringResultsWrapper.get_speedup(ground_truth, approx)
+
+    def get_run_command(self):
+        rc_base = self.config['run_command']
+        mult = self.get_multiplier(self.model_path)
+        return rc_base + ' ' + str(mult)
+
 
 
 @click.command()
