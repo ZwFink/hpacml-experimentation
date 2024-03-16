@@ -188,8 +188,7 @@ binomial_options:
       parameter_space:
       - name: multiplier
         type: fixed
-        value: 
-        - 1
+        value: 1
       - name: hidden1_features
         type: range
         bounds:
@@ -204,7 +203,7 @@ binomial_options:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 40
+      trials: 25
       parameter_constraints:
         - "inference_time <= 4"
       parameter_space:
@@ -216,7 +215,7 @@ binomial_options:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 100
+        value: 60
       - name: batch_size
         type: fixed
         value: 32
