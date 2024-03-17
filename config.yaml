@@ -264,34 +264,29 @@ bonds:
       objectives:
       - name: average_mse
         type: minimize
+        threshold: 0.5
       - name: inference_time
         type: minimize
         threshold: 8
       parameter_space:
       - name: multiplier
-        type: choice
-        values: 
-        - 1
-        - 2
-        - 4
-        - 8
-        - 16
-        - 32
+        type: fixed
+        value: 1
       - name: hidden1_features
         type: range
         bounds:
         - 5
-        - 32
+        - 512
       - name: hidden2_features
         type: range
         bounds:
         - 0
-        - 32
+        - 512
       tracking_metrics:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 50
+      trials: 25
       parameter_constraints:
         - "inference_time <= 8"
       parameter_space:
@@ -303,7 +298,7 @@ bonds:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 30
+        value: 50
       - name: batch_size
         type: fixed
         value: 32
