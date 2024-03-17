@@ -9,19 +9,13 @@ particlefilter:
     region_name: 'particlefilter'
     loss_fn: rmse
 miniweather:
-  train_args:
-    pareto_frontier_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/pareto_parameters.json'
-    all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/trial_results.csv'
-    pareto_only: false
-    epochs: 500
-    early_stop_args:
-      patience: 100
-      min_delta_percent: 1
-  data_args:
-    region_name: 'MiniWeatherTimestep'
-    load_entire: false
-    train_test_dataset: '/scratch/mzu/zanef2/surrogates/training_data/miniweather_768_384.h5'
-    output_models_directory: 'miniweather_output_models'
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/models'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/trial_results.csv'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniWeather-cuda/'
+  run_command: 'mpirun ./main'
+  comparison_args:
+    region_name: 'MiniWeatherOutput'
+    loss_fn: rmse
 minibude:
   models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-08_minibude/models'
   all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-08_minibude/trial_results.csv'

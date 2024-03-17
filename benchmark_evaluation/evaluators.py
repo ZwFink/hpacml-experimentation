@@ -52,6 +52,8 @@ class Evaluator:
             return BinomialOptionsEvaluator
         elif benchmark == 'bonds':
             return BondsEvaluator
+        elif benchmark == 'miniweather':
+            return MiniWeatherEvaluator
         else:
             raise ValueError(f'Unknown benchmark: {benchmark}')
 
@@ -461,6 +463,28 @@ class BondsEvaluator(EvaluatorWithMultiplier):
         mult = self.get_multiplier(self.model_path)
         return rc_base + ' ' + str(mult)
 
+
+class MiniWeatherEvaluator(Evaluator):
+    def __init__(self, config, model_path):
+        super().__init__('miniweather', config, model_path)
+
+    def get_error(self, ground_truth, approx, loss):
+        return HDF5AndStringResultsWrapper.get_error(ground_truth, approx, loss)
+    
+    def get_speedup(self, ground_truth, approx):
+        return HDF5AndStringResultsWrapper.get_speedup(ground_truth, approx)
+
+    def process_raw_data(self, data_str, is_approx=False):
+        rgn_name = self.config['comparison_args']['region_name']
+        if is_approx:
+            fname = DEFAULT_APPROX_H5
+        else:
+            fname = DEFAULT_EXACT_H5
+
+        return HDF5AndStringResultsWrapper(fname,
+                                           rgn_name,
+                                           data_str
+                                           )
 
 
 @click.command()
