@@ -104,7 +104,7 @@ def get_parsl_config(is_local, parsl_rundir):
 
 
 @click.command()
-@click.option('--benchmark', type=click.Choice(['particlefilter', 'minibude', 'binomialoptions']))
+@click.option('--benchmark', type=click.Choice(['particlefilter', 'minibude', 'binomialoptions', 'bonds']))
 @click.option('--config', type=click.Path(exists=True))
 @click.option('--output', type=click.Path())
 @click.option('--local', is_flag=True, default=False)
