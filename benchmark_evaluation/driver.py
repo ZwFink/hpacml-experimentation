@@ -126,6 +126,10 @@ def main(benchmark, config, output, local):
     trials_todo = list(trials_df.index)
     random.shuffle(trials_todo)
     for trial_num in trials_todo:
+        # if the value value for column 'inference_time' is nan
+        if pd.isna(trials_df.loc[trial_num, 'inference_time']):
+            print(f'Skipping trial {trial_num} for {benchmark} benchmark')
+            continue
         output_file = f'{output}_{benchmark}_{trial_num}.csv'
         parsl_output = ParslFile(output_file)
         trial_results = evaluate(benchmark, config_file,
