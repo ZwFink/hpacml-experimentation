@@ -37,16 +37,16 @@ binomialoptions:
   models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-16_binomial_options/models'
   all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-16_binomial_options/trial_results.csv'
   benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/binomialoptions-cuda/'
-  run_command: './binomial_options /scratch/mzu/zanef2/surrogates/training_data/random_input_16777216.bin 9194304 16777216 exact.out'
+  run_command: './binomial_options /scratch/mzu/zanef2/surrogates/training_data/random_input_16777216.bin 11194304 16777216 exact.out'
   comparison_args:
     region_name: 'BinomialOptionsOutput'
     loss_fn: rmse
 
 bonds:
-  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-14_bonds/models'
-  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-14_bonds/trial_results.csv'
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-17_bonds/models'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-17_bonds/trial_results.csv'
   benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/bonds-cuda/'
-  run_command: './bonds 20 16777216 6194304 16777216'
+  run_command: './bonds 20 16777216 9194304 16777216'
   comparison_args:
     region_name: 'BondsOutput'
     loss_fn: rmse
