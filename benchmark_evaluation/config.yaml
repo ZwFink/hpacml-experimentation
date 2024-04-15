@@ -1,0 +1,52 @@
+---
+particlefilter:
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-09_particlefilter/models'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/particlefilter-cuda/'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-09_particlefilter/trial_results.csv'
+  run_command: './main -x 128 -y 128 -z 24 -np 4096'
+  # We run the benchmark in exact mode to compare against the approx outputs
+  comparison_args:
+    region_name: 'particlefilter'
+    loss_fn: rmse
+miniweather:
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/models'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-11_miniweather/trial_results.csv'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniWeather-cuda/'
+  run_command: 'mpirun ./main'
+  comparison_args:
+    region_name: 'MiniWeatherOutput'
+    loss_fn: rmse
+minibude:
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-08_minibude/models'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-08_minibude/trial_results.csv'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/miniBUDE/'
+  dataset_gen_command:
+  - './bude'
+  - '--deck'
+  - '/scratch/mzu/zanef2/miniBUDE_data/bm2_long'
+  - '-i'
+  - '20'
+  - '-n'
+  - '1048576'
+  # We run the benchmark in exact mode to compare against the approx outputs
+  comparison_args:
+    region_name: 'BUDEOutput'
+    start_index: 1048576
+    loss_fn: mape
+binomialoptions:
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-16_binomial_options/models'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-16_binomial_options/trial_results.csv'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/binomialoptions-cuda/'
+  run_command: './binomial_options /scratch/mzu/zanef2/surrogates/training_data/random_input_16777216.bin 11194304 16777216 exact.out'
+  comparison_args:
+    region_name: 'BinomialOptionsOutput'
+    loss_fn: rmse
+
+bonds:
+  models_directory: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-17_bonds/models'
+  all_trials_file: '/scratch/mzu/zanef2/surrogates/hpacml-experimentation/2024-03-17_bonds/trial_results.csv'
+  benchmark_location: '/scratch/mzu/zanef2/surrogates/SurrogateBenchmarks/benchmarks/bonds-cuda/'
+  run_command: './bonds 20 16777216 9194304 16777216'
+  comparison_args:
+    region_name: 'BondsOutput'
+    loss_fn: rmse
