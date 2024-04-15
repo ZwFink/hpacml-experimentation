@@ -332,7 +332,7 @@ minibude:
         dataset_gen_command:
           - 'bude'
           - '--deck'
-          - '/scratch/mzu/zanef2/miniBUDE_data/bm2_long'
+          - '/scratch/mzu/zanef2/surrogates/training_data/miniBUDE_data/bm2_long'
           - '-i'
           - '1'
           - '-n'
