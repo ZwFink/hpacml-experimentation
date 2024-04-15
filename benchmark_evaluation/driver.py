@@ -66,10 +66,11 @@ def get_parsl_config(is_local, parsl_rundir):
     slurm_provider = SlurmProvider(
         partition="gpuA100x4",
         account="mzu-delta-gpu",
-        scheduler_options="#SBATCH --gpus-per-task=1 --cpus-per-gpu=15 --nodes=1 --ntasks-per-node=1",
+        scheduler_options="#SBATCH --gpus-per-task=1 --nodes=1 --ntasks-per-node=1",
         worker_init='source ~/activate.sh',
         nodes_per_block=1,
         max_blocks=5,
+        cores_per_node=15,
         init_blocks=1,
         parallelism=1,
         exclusive=True,
@@ -89,7 +90,7 @@ def get_parsl_config(is_local, parsl_rundir):
         run_dir=parsl_rundir,
         executors=[
             HighThroughputExecutor(
-                cores_per_worker=5,
+                cores_per_worker=15,
                 available_accelerators=1,
                 cpu_affinity='block',
                 mem_per_worker=70,

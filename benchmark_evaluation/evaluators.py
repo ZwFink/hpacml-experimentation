@@ -109,9 +109,14 @@ class Evaluator:
         # from somewhere else
         # because each run of this will have a different one
         os.environ['SURROGATE_MODEL'] = self.model_path
-        os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5
+        os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5 + '_dummy'
+        os.environ['CAPTURE_OUTPUT'] = '0'
+        r1 = self.run(run_command)
+        r1 = self.run(run_command)
         os.environ['CAPTURE_OUTPUT'] = '1'
-        return self.run(run_command)
+        os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5
+        self.run(run_command)
+        return r1
 
     def run_exact(self, run_command):
         os.environ['HPAC_DB_FILE'] = DEFAULT_EXACT_H5
