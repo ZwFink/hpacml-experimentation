@@ -231,6 +231,7 @@ def main(config, benchmark, output_base, restart, output, parsl_rundir):
     output_columns = ['trial']
     output_columns += arch_search_params.get_parameter_names() 
     output_columns += hyper_search_params.get_parameter_names()
+    output_columns += ['num_params']
     output_columns += arch_search_params.tracking_metric_names
 
     global TRIALS_ARCH

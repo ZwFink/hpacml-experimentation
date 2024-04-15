@@ -114,6 +114,11 @@ miniweather:
         bounds:
         - 0
         - 6
+      - name: batchnorm
+        type: choice
+        values:
+        - 0
+        - 1
       - name: activation_function
         type: fixed
         value: leaky_relu
@@ -164,7 +169,7 @@ binomial_options:
       # We have so much data for this one,
       # performance is affected a lot by 
       # the amount of test data
-      test_split: 0.97
+      test_split: 0.93
       max_test_batches: 8000
     early_stop_args:
       patience: 5
@@ -179,27 +184,26 @@ binomial_options:
         type: minimize
       - name: inference_time
         type: minimize
+        threshold: 1
       parameter_space:
       - name: multiplier
-        type: range
-        bounds: 
-        - 1
-        - 32
+        type: fixed
+        value: 1
       - name: hidden1_features
         type: range
         bounds:
         - 5
-        - 32
+        - 512
       - name: hidden2_features
         type: range
         bounds:
         - 0
-        - 32
+        - 512
       tracking_metrics:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 40
+      trials: 25
       parameter_constraints:
         - "inference_time <= 4"
       parameter_space:
@@ -211,7 +215,7 @@ binomial_options:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 100
+        value: 60
       - name: batch_size
         type: fixed
         value: 32
@@ -242,7 +246,7 @@ bonds:
       # We have so much data for this one,
       # performance is affected a lot by 
       # the amount of test data
-      test_split: 0.95
+      test_split: 0.93
       # Admittedly, this is awkward.
       # We don't want to use our entire 'test set'
       # (non training set) for validation, but we
@@ -260,29 +264,29 @@ bonds:
       objectives:
       - name: average_mse
         type: minimize
+        threshold: 0.5
       - name: inference_time
         type: minimize
+        threshold: 8
       parameter_space:
       - name: multiplier
-        type: range
-        bounds: 
-        - 1
-        - 32
+        type: fixed
+        value: 1
       - name: hidden1_features
         type: range
         bounds:
         - 5
-        - 32
+        - 512
       - name: hidden2_features
         type: range
         bounds:
         - 0
-        - 32
+        - 512
       tracking_metrics:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 50
+      trials: 25
       parameter_constraints:
         - "inference_time <= 8"
       parameter_space:
@@ -294,7 +298,7 @@ bonds:
         log_scale: true
       - name: epochs
         type: fixed
-        value: 30
+        value: 50
       - name: batch_size
         type: fixed
         value: 32
@@ -328,11 +332,11 @@ minibude:
         dataset_gen_command:
           - 'bude'
           - '--deck'
-          - '/scratch/mzu/zanef2/miniBUDE_data/bm2'
+          - '/scratch/mzu/zanef2/surrogates/training_data/miniBUDE_data/bm2_long'
           - '-i'
           - '1'
           - '-n'
-          - '2097152'
+          - '1048576'
           - '--ni'
           - '4'
       load_entire: false
@@ -349,34 +353,44 @@ minibude:
       objectives:
       - name: average_mse
         type: minimize
-        threshold: 10
+        threshold: 5
       - name: inference_time
         type: minimize
-        threshold: 5000
+        threshold: 200
       parameter_space:
       - name: feature_multiplier
         type: range
         bounds: 
         - 0.1
-        - 1.0
+        - 0.8
       - name: multiplier
-        type: range
-        bounds:
+        type: choice
+        values:
+        - 1
+        - 4
+        - 8
         - 32
-        - 256
+        - 64
       - name: num_hidden_layers
         type: range
         bounds:
         - 2
-        - 12
+        - 12 
       - name: hidden_1_features
-        type: fixed
-        value: 22320
+        type: choice
+        values: 
+        - 64
+        - 128
+        - 256 
+        - 512 
+        - 1024
+        - 2048
+        - 4096
       tracking_metrics:
       - average_mse
       - inference_time
     hyperparameter_config:
-      trials: 50
+      trials: 25
       parameter_space:
       - name: learning_rate
         type: range
@@ -400,7 +414,7 @@ minibude:
       - name: weight_decay
         type: range
         bounds:
-        - 0.0001
+        - 0.00001
         - 0.1
         log_scale: true
       objectives:

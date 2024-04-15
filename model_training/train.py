@@ -118,6 +118,7 @@ class MiniWeatherNeuralNetwork(nn.Module):
         dropout = network_params.get("dropout")
         activ_fn_name = network_params.get("activation_function")
         conv2_kernel_size = network_params.get("conv2_kernel_size")
+        use_batchnorm = network_params.get("batchnorm")
 
         if activ_fn_name == "relu":
             self.activ_fn = nn.ReLU()
@@ -131,6 +132,11 @@ class MiniWeatherNeuralNetwork(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
         if conv2_kernel_size != 0:
+            if use_batchnorm:
+                bn = [nn.BatchNorm2d(conv1_out_channels)]
+            else:
+                bn = []
+
             self.conv1 = nn.Conv2d(in_channels=4,
                                    out_channels=conv1_out_channels,
                                    kernel_size=(c1ks, c1ks), stride=(c1s, c1s),
@@ -143,20 +149,24 @@ class MiniWeatherNeuralNetwork(nn.Module):
                                                 conv2_kernel_size),
                                    stride=(1, 1), padding='same'
                                    )
-            self.fp = nn.Sequential(self.conv1, nn.BatchNorm2d(conv1_out_channels), 
-                                    self.activ_fn, 
-                                    self.dropout, self.conv2, nn.BatchNorm2d(4),
+            self.fp = nn.Sequential(*[self.conv1, *bn,
+                                    self.activ_fn,
+                                    self.dropout, self.conv2, *bn,
                                     self.activ_fn
-                                    )
+                                    ])
         else:
+            if use_batchnorm:
+                bn = [nn.BatchNorm2d(4)]
+            else:
+                bn = []
             # Here, we ignore Conv1 out channels
-            self.conv1 = nn.Conv2d(in_channels=4, out_channels=4, 
-                                   kernel_size=(c1ks, c1ks), stride=(c1s, c1s), 
+            self.conv1 = nn.Conv2d(in_channels=4, out_channels=4,
+                                   kernel_size=(c1ks, c1ks), stride=(c1s, c1s),
                                    padding='same'
                                    )
-            self.fp = nn.Sequential(self.conv1, nn.BatchNorm2d(4), 
+            self.fp = nn.Sequential(*[self.conv1, *bn,
                                     self.activ_fn, self.dropout
-                                    )
+                                ])
 
         self.register_buffer('min', torch.full((4, 1), torch.inf))
         self.register_buffer('max', torch.full((4, 1), -torch.inf))
@@ -479,7 +489,8 @@ class ConfigurableNumHiddenLayersMiniBUDENeuralNetwork(nn.Module):
         dropout = params.get("dropout")
 
         n_pose_values = 6 * multiplier
-        n_input_features = n_pose_values + 21552
+        # n_input_features = n_pose_values + 21552
+        n_input_features = n_pose_values
         n_output_features = 1 * multiplier
 
         first_layer = nn.Linear(n_input_features, h1_features)
@@ -497,6 +508,7 @@ class ConfigurableNumHiddenLayersMiniBUDENeuralNetwork(nn.Module):
                     continue
                 next_layer = nn.Linear(prev_features, num_features)
                 nn_layers.append(next_layer)
+                nn_layers.append(nn.BatchNorm1d(num_features))
                 nn_layers.append(nn.PReLU())
                 nn_layers.append(nn.Dropout(dropout))
 
@@ -647,7 +659,7 @@ def infer_loop(model, dataloader, trials, writer=None):
         with torch.jit.optimized_execution(True):
             model = model.to(DATATYPE)
             model.eval()
-            traced_script_module = torch.jit.trace(model, X)
+            traced_script_module = torch.jit.trace(model, X[0:10])
             model = traced_script_module
             model = torch.jit.freeze(model)
         model = model.to(DATATYPE)
@@ -680,6 +692,11 @@ def infer_loop(model, dataloader, trials, writer=None):
       writer.add_scalar('inference time', average_time*1000, 0)
     return model, mean, sem
 
+def get_num_params(net):
+    model_parameters = filter(lambda p: p.requires_grad, net.parameters())
+    params = sum([np.prod(p.size()) for p in model_parameters])
+    return int(params.item())
+
 def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper, arch_params, hyper_params):
     learning_rate = hyper_params.get("learning_rate")
     epochs = hyper_params.get("epochs")
@@ -691,6 +708,7 @@ def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper,
 
     model = nn_class(arch_params).to(DATATYPE).to(device)
     model.calculate_and_save_normalization_parameters(train_dl)
+    n_params = get_num_params(model)
 
     print(model)
     writer = None
@@ -739,7 +757,7 @@ def train_test_infer_loop(nn_class, user_loss, train_dl, test_dl, early_stopper,
     infer_end = time.time()
     print(f"Inference time: {(infer_end - infer_start)}")
     # YAML doesn't know how to handle tuples, so we return a list
-    return model_best, best_user_test_loss, [infer_time, infer_sem]
+    return n_params, model_best, best_user_test_loss, [infer_time, infer_sem]
 
 
 class BenchmarkSpecifier:
@@ -1034,12 +1052,13 @@ def main(name, config, architecture_config, output, model_path):
     early_stopper = EarlyStopper(early_stop_parms['patience'], 
                                  early_stop_parms['min_delta_percent'])
     user_loss = BenchSpec.get_error_reporting_fn()
-    best_model, test_loss, runtime = train_test_infer_loop(nn, user_loss,
+    n_params, best_model, test_loss, runtime = train_test_infer_loop(nn, user_loss,
                                                train_dl, test_dl,
                                                early_stopper, arch_params,
                                                hyper_params
                                                )
     results = {"average_mse": test_loss, 'inference_time': runtime}
+    results['n_params'] = n_params
     print(results)
     with open(output, 'w') as f:
         yaml.dump(results, f)
