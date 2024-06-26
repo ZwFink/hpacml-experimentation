@@ -59,7 +59,7 @@ The runtimes for each configuration are shown in the table below.
 | Binomial Options |     28    |     7     |
 |       Bonds      |     13    |     8     |
 |    MiniWeather   |     30    |    2.5    |
-|  ParticleFilter  |    100    |     30    |
+|  ParticleFilter  |    50    |     15    |
 
 For MiniWeather, this script does not perform the analysis shown in Figure 9(d).
 Instead, it runs all trained MiniWeather models doing auto-regressive inference where the model is used for all timesteps.
