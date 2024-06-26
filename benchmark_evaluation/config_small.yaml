@@ -1,0 +1,52 @@
+---
+particlefilter:
+  models_directory: '../../hpacml_models/particlefilter'
+  benchmark_location: '../../../benchmarks/particlefilter-cuda/'
+  all_trials_file: '../../hpacml_models/particlefilter/trial_results_small.csv'
+  run_command: './main -x 128 -y 128 -z 24 -np 4096'
+  # We run the benchmark in exact mode to compare against the approx outputs
+  comparison_args:
+    region_name: 'particlefilter'
+    loss_fn: rmse
+miniweather:
+  models_directory: '../../hpacml_models/miniweather'
+  all_trials_file: '../../hpacml_models/miniweather/trial_results_small.csv'
+  benchmark_location: '../../../benchmarks/miniWeather-cuda/'
+  run_command: 'mpirun -np 1 --allow-run-as-root ./main'
+  comparison_args:
+    region_name: 'MiniWeatherOutput'
+    loss_fn: rmse
+minibude:
+  models_directory: '../../hpacml_models/minibude'
+  all_trials_file: '../../hpacml_models/minibude/trial_results_small.csv'
+  benchmark_location: '../../../benchmarks/miniBUDE/'
+  dataset_gen_command:
+  - './bude'
+  - '--deck'
+  - '/srgt/benchmarks/input_data/miniBUDE_data/bm2_long'
+  - '-i'
+  - '8'
+  - '-n'
+  - '1048576'
+  # We run the benchmark in exact mode to compare against the approx outputs
+  comparison_args:
+    region_name: 'BUDEOutput'
+    start_index: 1048576
+    loss_fn: mape
+binomialoptions:
+  models_directory: '../../hpacml_models/binomial_options'
+  all_trials_file: '../../hpacml_models/binomial_options/trial_results_small.csv'
+  benchmark_location: '../../../benchmarks/binomialoptions-cuda/'
+  run_command: './binomial_options /srgt/benchmarks/input_data/random_input_16777216.bin 11194304 16777216 exact.out'
+  comparison_args:
+    region_name: 'BinomialOptionsOutput'
+    loss_fn: rmse
+
+bonds:
+  models_directory: '../../hpacml_models/bonds'
+  all_trials_file: '../../hpacml_models/bonds/trial_results_small.csv'
+  benchmark_location: '../../../benchmarks/bonds-cuda/'
+  run_command: './bonds 20 16777216 9194304 16777216'
+  comparison_args:
+    region_name: 'BondsOutput'
+    loss_fn: rmse
