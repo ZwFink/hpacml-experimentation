@@ -112,7 +112,6 @@ class Evaluator:
         os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5 + '_dummy'
         os.environ['CAPTURE_OUTPUT'] = '0'
         r1 = self.run(run_command)
-        r1 = self.run(run_command)
         os.environ['CAPTURE_OUTPUT'] = '1'
         os.environ['HPAC_DB_FILE'] = DEFAULT_APPROX_H5
         self.run(run_command)
@@ -281,6 +280,11 @@ class EventParser:
             offenders = [k for k, v in opt.items() if len(v) != n_trials]
             for offender in offenders:
                 print(offender)
+                if len(opt[offender]) == n_trials + 1:
+                    print(f"Able to save offender {offender} by removing")
+                    print(" final event (to database).")
+                    opt[offender].pop()
+                    continue
                 del opt[offender]
         return opt
 
@@ -491,6 +495,12 @@ class MiniWeatherEvaluator(Evaluator):
                                            data_str
                                            )
 
+def convert_paths_to_absolute(config):
+    config['models_directory'] = os.path.abspath(config['models_directory'])
+    config['all_trials_file'] = os.path.abspath(config['all_trials_file'])
+    config['benchmark_location'] = os.path.abspath(config['benchmark_location'])
+    return config
+
 
 @click.command()
 @click.option('--benchmark', help='The benchmark to evaluate')
@@ -502,9 +512,10 @@ def main(benchmark, config, trial_num, model_path, output):
     with open(config, 'r') as f:
         config = yaml.safe_load(f)
     benchmark_config = config[benchmark]
+    benchmark_config = convert_paths_to_absolute(benchmark_config)
 
     evaluator = Evaluator.get_evaluator_class(benchmark)(benchmark_config,
-                                                         model_path
+                                                         os.path.abspath(model_path)
                                                          )
     wrapped_result, events = evaluator.run_and_compute_speedup_and_error(get_events=True)
     events['avg_speedup'] = wrapped_result.get_speedup()

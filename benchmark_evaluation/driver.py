@@ -129,7 +129,8 @@ def main(benchmark, config, output, local):
     for trial_num in trials_todo:
         # if the value value for column 'inference_time' is nan
         if pd.isna(trials_df.loc[trial_num, 'inference_time']):
-            print(f'Skipping trial {trial_num} for {benchmark} benchmark')
+            print(f'Skipping trial {trial_num} for {benchmark} benchmark. ')
+            print('(The model architecture was likely invalid, so the model did not train).')
             continue
         output_file = f'{output}_{benchmark}_{trial_num}.csv'
         parsl_output = ParslFile(output_file)
