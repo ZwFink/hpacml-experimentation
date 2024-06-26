@@ -12,7 +12,7 @@ miniweather:
   models_directory: '../../hpacml_models/miniweather'
   all_trials_file: '../../hpacml_models/miniweather/trial_results.csv'
   benchmark_location: '../../../benchmarks/miniWeather-cuda/'
-  run_command: 'mpirun ./main'
+  run_command: 'mpirun -np 1 --allow-run-as-root ./main'
   comparison_args:
     region_name: 'MiniWeatherOutput'
     loss_fn: rmse
@@ -23,7 +23,7 @@ minibude:
   dataset_gen_command:
   - './bude'
   - '--deck'
-  - '/scratch/mzu/zanef2/miniBUDE_data/bm2_long'
+  - '/srgt/benchmarks/input_data/miniBUDE_data/bm2_long'
   - '-i'
   - '20'
   - '-n'
