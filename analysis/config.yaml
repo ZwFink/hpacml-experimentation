@@ -1,0 +1,39 @@
+minibude:
+  small:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/minibude_small.csv'
+    training_file: '/srgt/experimentation/hpacml_models/minibude/trial_results_small.csv'
+  large:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/minibude.csv'
+    training_file: '/srgt/experimentation/hpacml_models/minibude/trial_results.csv'
+
+particlefilter:
+  small:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/particlefilter_small.csv'
+    training_file: '/srgt/experimentation/hpacml_models/particlefilter/trial_results_small.csv'
+  large:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/particlefilter.csv'
+    training_file: '/srgt/experimentation/hpacml_models/particlefilter/trial_results.csv'
+
+bonds:
+  small:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/bonds_small.csv'
+    training_file: '/srgt/experimentation/hpacml_models/bonds/trial_results_small.csv'
+  large:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/bonds.csv'
+    training_file: '/srgt/experimentation/hpacml_models/bonds/trial_results.csv'
+
+binomialoptions:
+  small:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/binomialoptions_small.csv'
+    training_file: '/srgt/experimentation/hpacml_models/binomial_options/trial_results_small.csv'
+  large:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/binomialoptions.csv'
+    training_file: '/srgt/experimentation/hpacml_models/binomial_options/trial_results.csv'
+
+miniweather:
+  small:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/miniweather_small.csv'
+    training_file: '/srgt/experimentation/hpacml_models/miniweather/trial_results_small.csv'
+  large:
+    eval_file: '/srgt/experimentation/hpacml-experimentation/benchmark_evaluation/results/miniweather.csv'
+    training_file: '/srgt/experimentation/hpacml_models/miniweather/trial_results.csv'
