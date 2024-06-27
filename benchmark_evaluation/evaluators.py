@@ -126,7 +126,7 @@ class Evaluator:
         cmd = self.create_command(cmd_str)
         buf = io.StringIO()
         try:
-            cmd(_out=buf)
+            cmd(_out=buf, _err=buf)
         except sh.ErrorReturnCode as e:
             print(e)
             print(e.stderr)
