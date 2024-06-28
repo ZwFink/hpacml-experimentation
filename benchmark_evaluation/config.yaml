@@ -2,7 +2,7 @@
 particlefilter:
   models_directory: '/srgt/models/particlefilter'
   benchmark_location: '/srgt/benchmarks/particlefilter-cuda/'
-  all_trials_file: '/srgt/models/hpacml_models/particlefilter/trial_results.csv'
+  all_trials_file: '/srgt/models/particlefilter/trial_results.csv'
   run_command: './main -x 128 -y 128 -z 24 -np 4096'
   # We run the benchmark in exact mode to compare against the approx outputs
   comparison_args:
@@ -10,7 +10,7 @@ particlefilter:
     loss_fn: rmse
 miniweather:
   models_directory: '/srgt/models/miniweather'
-  all_trials_file: '/srgt/models/hpacml_models/miniweather/trial_results.csv'
+  all_trials_file: '/srgt/models/miniweather/trial_results.csv'
   benchmark_location: '/srgt/benchmarks/miniWeather-cuda/'
   run_command: 'mpirun -np 1 --allow-run-as-root ./main'
   comparison_args:
