@@ -269,7 +269,8 @@ def plot_miniweather(files):
 @click.option('--config', default='config.yaml', help='Path to the configuration file')
 @click.option('--benchmark', type=click.Choice(['minibude', 'particlefilter', 'binomialoptions', 'bonds', 'miniweather']))
 @click.option('--small', is_flag=True, help='Use the small dataset')
-def main(config, benchmark, small):
+@click.option('--output', default='plots', help='Output directory')
+def main(config, benchmark, small, output):
     config = yaml.load(open(config), Loader=yaml.FullLoader)
     config = config[benchmark]
 
@@ -289,7 +290,7 @@ def main(config, benchmark, small):
     elif benchmark == 'miniweather':
         plot = plot_miniweather(files)
 
-    savefig(f'plots/{benchmark}', plot)
+    savefig(f'{output}/{benchmark}', plot)
 
 if __name__ == '__main__':
     main()

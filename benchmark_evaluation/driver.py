@@ -43,7 +43,7 @@ def evaluate(benchmark, config_file, trial_num, outputs=(),
     models_dir = benchmark_config['models_directory']
     # iterate of the index col of trials_df
     model_path = get_model_for_trial(trial_num, models_dir)
-    cmd = ['python3', 'evaluators.py',
+    cmd = ['python3', '/srgt/experimentation/benchmark_evaluation/evaluators.py',
            '--benchmark', benchmark,
            '--trial_num', str(trial_num),
            '--config', config_file,
